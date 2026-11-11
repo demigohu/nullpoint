@@ -1,0 +1,17 @@
+{
+  "name": "@nullpoint/scripts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "spike:chainsig-hl": "node spike-chainsig-hl.ts"
+  },
+  "dependencies": {
+    "@defuse-protocol/one-click-sdk-typescript": "^0.1.26",
+    "@nktkas/hyperliquid": "^0.33.3",
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^1.8.0",
+    "@nullpoint/core": "^0.0.0",
+    "@scure/base": "^1.2.6",
+    "viem": "^2.57.17"
+  }
+}

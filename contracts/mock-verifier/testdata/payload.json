@@ -1,0 +1,1 @@
+{"signer_id":"0x5e33437e5b871f1aa9e252dd00a36c53dfcb9a8d","verifying_contract":"intents.near","deadline":"2026-11-11T05:13:22.052Z","nonce":"Vij2xgAlKBKzAGmB2qXl5hhtVPsbtA3W8pvnO5ScUWU=","intents":[{"intent":"token_diff","diff":{"nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1":"-20000000","nep141:nbtc.bridge.near":"26000"}}]}
