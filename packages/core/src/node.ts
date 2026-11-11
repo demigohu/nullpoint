@@ -1,6 +1,6 @@
 // Signs function calls with near-cli-rs, so keys stay in the OS keychain (or the legacy key file).
 import { spawnSync } from "node:child_process";
-import { RPC, type Network } from "./near.ts";
+import { rpc, type Network } from "./near.ts";
 
 export type CallResult = { ok: boolean; tx?: string; output: string };
 
@@ -31,11 +31,7 @@ export function call(
 
 /** Every receipt failure in a transaction (a panic in a cross-contract callee isn't visible in the CLI output). */
 export async function receiptFailures(tx: string, signer: string, network: Network = "testnet"): Promise<string[]> {
-  const res = await fetch(RPC[network], {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tx", params: { tx_hash: tx, sender_account_id: signer, wait_until: "FINAL" } }),
-  }).then((r) => r.json());
+  const res = await rpc(network, "tx", { tx_hash: tx, sender_account_id: signer, wait_until: "FINAL" });
   return (res.result?.receipts_outcome ?? [])
     .filter((o: any) => o.outcome.status.Failure)
     .map((o: any) => `${o.outcome.executor_id}: ${JSON.stringify(o.outcome.status.Failure).match(/panicked: ([^"\\]*)/)?.[1] ?? JSON.stringify(o.outcome.status.Failure)}`);
