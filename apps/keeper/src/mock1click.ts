@@ -19,7 +19,7 @@ const privateKey = createPrivateKey({
   type: "pkcs8",
 });
 // The solver's Hyperliquid testnet wallet: receives margin pulled from the vault, sends margin to it.
-const solver = privateKeyToAccount((process.env.SOLVER_HL_PRIVATE_KEY ?? keyFile("mock-solver-hl.json").privateKey) as `0x${string}`);
+const solver = privateKeyToAccount((process.env.SOLVER_HL_PRIVATE_KEY || keyFile("mock-solver-hl.json").privateKey) as `0x${string}`);
 const solverExchange = new ExchangeClient({ transport: new HttpTransport({ isTestnet: true }), wallet: solver });
 
 const isHl = (asset: string) => asset.startsWith("1cs_v1:hypercore:");

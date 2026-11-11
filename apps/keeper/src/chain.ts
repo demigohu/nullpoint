@@ -10,11 +10,25 @@ export type Signer = {
 };
 
 export function signer(network: Network, accountId: string, privateKey: string): Signer {
-  const near = new Near({ network: { networkId: network, rpcUrl: RPCS[network][0] }, privateKey: privateKey as `ed25519:${string}`, defaultSignerId: accountId });
+  const clients = RPCS[network].map(
+    (rpcUrl) => new Near({ network: { networkId: network, rpcUrl }, privateKey: privateKey as `ed25519:${string}`, defaultSignerId: accountId }),
+  );
+  // Fall through to the next RPC only on 429: the endpoint refused the request, so nothing was
+  // broadcast. Any other failure is surfaced, since re-signing would use a new nonce and could
+  // execute the same action twice.
+  const send = async (contract: string, method: string, args: object, opts: object) => {
+    for (const [i, near] of clients.entries()) {
+      try {
+        return await near.call(contract, method, args, opts);
+      } catch (e) {
+        if ((e as { statusCode?: number }).statusCode !== 429 || i === clients.length - 1) throw e;
+      }
+    }
+  };
   return {
     accountId,
     async call(contract, method, args, { gas = 100, deposit = "0 yocto" } = {}) {
-      const out: any = await near.call(contract, method, args, { gas: `${gas} Tgas`, attachedDeposit: deposit as `${number} yocto`, waitUntil: "FINAL" });
+      const out: any = await send(contract, method, args, { gas: `${gas} Tgas`, attachedDeposit: deposit as `${number} yocto`, waitUntil: "FINAL" });
       const tx: string = out.transaction?.hash ?? out.transaction_outcome?.id;
       const failures = (out.receipts_outcome ?? [])
         .filter((o: any) => o.outcome.status.Failure)

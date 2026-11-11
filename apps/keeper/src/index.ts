@@ -36,7 +36,7 @@ const DEMO_FUNDING: Record<string, number> = JSON.parse(process.env.DEMO_FUNDING
 const LIMITS_USED = { ...LIMITS, ...(process.env.DEMO_MIN_HOLD_HOURS ? { minHoldHours: Number(process.env.DEMO_MIN_HOLD_HOURS) } : {}) };
 
 const agent = privateKeyToAccount(
-  (process.env.HL_AGENT_PRIVATE_KEY ?? JSON.parse(readFileSync(new URL("../../../.keys/hl-agent.json", import.meta.url), "utf8")).privateKey) as `0x${string}`,
+  (process.env.HL_AGENT_PRIVATE_KEY || JSON.parse(readFileSync(new URL("../../../.keys/hl-agent.json", import.meta.url), "utf8")).privateKey) as `0x${string}`,
 );
 const transport = new HttpTransport({ isTestnet: true });
 const info = new InfoClient({ transport });
