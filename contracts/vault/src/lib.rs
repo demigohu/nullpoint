@@ -125,9 +125,18 @@ pub struct Signed {
 #[derive(Clone)]
 pub struct Decision {
     pub ms: u64,
+    /// sha256 of the full strategist record (input, output, NEAR AI chat signature).
     pub hash: String,
+    /// "llm" or "rule".
+    pub source: String,
     pub action: String,
+    pub target: Option<String>,
     pub accepted: bool,
+    /// Model reasoning, or the guardrail's rejection reason.
+    pub note: String,
+    /// NEAR AI Cloud chat id and the TEE-attested address that signed the answer (empty for "rule").
+    pub chat_id: String,
+    pub signing_address: String,
 }
 
 #[near(serializers = [json, borsh])]
@@ -398,9 +407,10 @@ impl Contract {
         }
     }
 
-    pub fn report_decision(&mut self, hash: String, action: String, accepted: bool) {
+    pub fn report_decision(&mut self, decision: Decision) {
         self.assert_keeper();
-        self.decisions.push(Decision { ms: now_ms(), hash, action, accepted });
+        require!(decision.note.len() <= 280 && decision.hash.len() == 64, "note <= 280 chars, hash = sha256 hex");
+        self.decisions.push(Decision { ms: now_ms(), ..decision });
     }
 
     // ---------- keeper: moving funds through verified 1Click quotes ----------

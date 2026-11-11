@@ -248,8 +248,8 @@ Rotasi = swap spot A → B lewat Intents (~0.3%) + tutup short A dan buka short 
 - Sinyal: funding rata-rata `funding_window_hours` (default 8 jam) per aset, bukan angka sesaat.
 - Rotasi ke B hanya bila semua syarat terpenuhi:
   1. `avg_funding(B) - avg_funding(A) ≥ rotation_threshold_apr` (default 5% APR).
-  2. **Payback**: biaya rotasi (dari quote 1Click + estimasi slippage Hyperliquid) tertutup oleh selisih funding dalam ≤ `max_payback_hours` (default 72 jam).
-  3. Aset aktif sudah dipegang ≥ `min_hold_hours` (default 24 jam).
+  2. **Payback**: biaya rotasi (dari quote 1Click + estimasi slippage Hyperliquid) tertutup oleh selisih funding dalam ≤ `max_payback_hours` (default **168 jam**; koreksi 11 Nov: dengan biaya 0.4%, batas 72 jam butuh selisih ≥ 49% APR sehingga rotasi praktis tidak pernah terjadi. 168 jam berarti selisih ≥ ~21% APR. Rotasi memang langka).
+  3. Aset aktif sudah dipegang ≥ `min_hold_hours` (default 6 jam, sama dengan guardrail LLM).
   4. Perp B cukup likuid untuk ukuran posisi.
 - Eksekusi: buka short B dulu → swap spot A → B → tutup short A. Selama swap (~20 detik) vault memegang dua short dan satu spot. Eksposurnya kecil dan sebaliknya tidak pernah long telanjang. Bila swap gagal, tutup short B dan kembali ke A (`ERROR`).
 - Setiap rotasi dicatat lewat `report_rotation` dengan alasan, misalnya "NEAR 8h avg 17.4% vs BTC 9.1%, payback 41h".

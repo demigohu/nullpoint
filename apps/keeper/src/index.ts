@@ -1,23 +1,33 @@
-// NullPoint keeper v1 (rule-based, testnet). Each cycle:
+// NullPoint keeper (testnet). Stateless: each cycle reads the vault and Hyperliquid, then converges.
 //   1. report verified prices (1Click quotes; mock on testnet)
-//   2. idle USDC in the vault's Intents account -> buy spot of the target asset via sign_quote
-//   3. size the Hyperliquid short to match spot (agent wallet, leverage <= 2x)
-//   4. report the Hyperliquid side; the contract checks it and recomputes NAV
-//   node src/index.ts [--once]          env: OWNER, TARGET (BTC|ETH|NEAR), INTERVAL_S
+//   2. strategist (LLM on NEAR AI Cloud, rule fallback) -> guardrail -> decision recorded on-chain
+//   3. desired spot = all in the target asset (or USDC when parked); swap one capped step toward it
+//   4. size each Hyperliquid short to its spot (agent wallet)
+//   5. report the Hyperliquid side; the contract checks it and recomputes NAV
+//   node src/index.ts [--once]
+//   env: OWNER, INTERVAL_S (60), STRATEGIST_INTERVAL_MIN (30), NEARAI_API_KEY,
+//        STRATEGIST=rule to skip the LLM; DEMO_FUNDING='{"NEAR":60}' and DEMO_MIN_HOLD_HOURS=0 to stage a rotation on testnet
 import { readFileSync } from "node:fs";
 import { ExchangeClient, HttpTransport, InfoClient } from "@nktkas/hyperliquid";
 import { privateKeyToAccount } from "viem/accounts";
-import { ASSETS, assetBySymbol, mpcToIntentsSignature, signedMessage as msg, view } from "@nullpoint/core";
+import {
+  ASSETS, LIMITS, askStrategist, assetBySymbol, guardrail, mpcToIntentsSignature, ruleDecision,
+  signedMessage as msg, view, type Context, type Decision, type Market,
+} from "@nullpoint/core";
 import { mustCall } from "@nullpoint/core/node";
 import * as oneclick from "./mock1click.ts";
 
 const NET = "testnet";
 const OWNER = process.env.OWNER ?? "nullpoint.testnet";
 const [VAULT, VERIFIER, KEEPER] = ["vault", "verifier", "keeper"].map((p) => `${p}.${OWNER}`);
-const TARGET = assetBySymbol(process.env.TARGET ?? "BTC");
-const LEVERAGE = 2;
-const MIN_TRADE_USDC = 12_000_000n; // Hyperliquid rejects orders under $10, so spot is bought in hedgeable chunks
+const DEFAULT_TARGET = "BTC";
+const MIN_TRADE_USDC = 12_000_000n; // Hyperliquid rejects orders under $10, so spot moves in hedgeable chunks
 const PRICE_SAMPLE_USDC = 1_000_000n; // quote ~1 USDC worth of each asset for pricing
+const ROTATION_COST_BPS = 40; // swap (~30 bps) + closing and opening shorts (~2 x 4.5 bps)
+const STRATEGIST_EVERY_MS = Number(process.env.STRATEGIST_INTERVAL_MIN ?? 30) * 60_000;
+const RECORD_HOLD_EVERY_MS = 3 * 3_600_000; // HOLDs are recorded on-chain at most this often
+const DEMO_FUNDING: Record<string, number> = JSON.parse(process.env.DEMO_FUNDING ?? "{}");
+const LIMITS_USED = { ...LIMITS, ...(process.env.DEMO_MIN_HOLD_HOURS ? { minHoldHours: Number(process.env.DEMO_MIN_HOLD_HOURS) } : {}) };
 
 const agent = privateKeyToAccount(JSON.parse(readFileSync(new URL("../../../.keys/hl-agent.json", import.meta.url), "utf8")).privateKey);
 const transport = new HttpTransport({ isTestnet: true });
@@ -38,13 +48,87 @@ async function retry<T>(fn: () => Promise<T>, tries = 4): Promise<T> {
   }
 }
 
+type OnChainDecision = { ms: number; action: string; target: string | null; accepted: boolean; source: string };
+
+/** Where the vault should be, derived from accepted decisions on-chain. */
+function plan(decisions: OnChainDecision[], nowMs: number) {
+  const moves = decisions.filter((d) => d.accepted && ["ROTATE", "RESUME", "PARK"].includes(d.action));
+  const last = moves.at(-1);
+  const lev = decisions.filter((d) => d.accepted && d.action === "SET_LEVERAGE").at(-1);
+  return {
+    target: last?.action === "PARK" ? null : (last?.target ?? DEFAULT_TARGET),
+    heldSinceMs: last?.ms ?? 0,
+    rotationsLast24h: moves.filter((d) => d.action === "ROTATE" && nowMs - d.ms < 86_400_000).length,
+    leverage: lev ? Number(lev.target) : LIMITS.maxLeverage,
+    lastStrategistMs: decisions.filter((d) => d.source !== "keeper").at(-1)?.ms ?? 0,
+    lastHoldRecordMs: decisions.filter((d) => d.action === "HOLD").at(-1)?.ms ?? 0,
+  };
+}
+
+async function markets(meta: any, ctxs: any[]): Promise<Market[]> {
+  const since = Date.now() - 8 * 3_600_000;
+  return Promise.all(
+    ASSETS.map(async (a) => {
+      const i = meta.universe.findIndex((u: { name: string }) => u.name === a.hlCoin);
+      const hist = await retry(() => info.fundingHistory({ coin: a.hlCoin, startTime: since }));
+      const avg = hist.length ? hist.reduce((s, h) => s + Number(h.fundingRate), 0) / hist.length : Number(ctxs[i].funding);
+      const apr = (r: number) => r * 8760 * 100;
+      return {
+        symbol: a.symbol,
+        fundingAprNow: DEMO_FUNDING[a.symbol] ?? apr(Number(ctxs[i].funding)),
+        fundingApr8h: DEMO_FUNDING[a.symbol] ?? apr(avg),
+        openInterestUsd: Math.round(Number(ctxs[i].openInterest) * Number(ctxs[i].markPx)),
+      };
+    }),
+  );
+}
+
+async function decide(ctx: Context, mkts: Market[], p: ReturnType<typeof plan>) {
+  let decision: Decision, source = "rule", hash = "0".repeat(64), chatId = "", signer = "";
+  try {
+    if (process.env.STRATEGIST === "rule") throw new Error("STRATEGIST=rule");
+    if (!process.env.NEARAI_API_KEY) throw new Error("no NEARAI_API_KEY");
+    const r = await askStrategist(process.env.NEARAI_API_KEY, ctx, mkts);
+    if (!r.record.verified) throw new Error("strategist answer failed TEE signature check");
+    ({ decision, hash } = r);
+    source = "llm";
+    chatId = r.record.chatId;
+    signer = r.record.signature.signing_address;
+  } catch (e) {
+    log("strategist unavailable, rule fallback:", (e as Error).message);
+    decision = ruleDecision(ctx, mkts, LIMITS_USED);
+  }
+  const g = guardrail(decision, ctx, mkts, LIMITS_USED);
+  const accepted = g.ok;
+  log(`${source} -> ${decision.action}${decision.target ? " " + decision.target : ""} (${decision.confidence}) ${accepted ? "ACCEPTED" : "REJECTED: " + (g as { reason: string }).reason}: ${decision.reasoning}`);
+  if (decision.action !== "HOLD" || ctx.nowMs - p.lastHoldRecordMs >= RECORD_HOLD_EVERY_MS) {
+    const note = (accepted ? decision.reasoning : `rejected: ${(g as { reason: string }).reason} | ${decision.reasoning}`).slice(0, 280);
+    const target = decision.action === "SET_LEVERAGE" ? String(decision.leverage) : (decision.target ?? null);
+    await keeperCall("report_decision", { decision: { ms: 0, hash, source, action: decision.action, target, accepted, note, chat_id: chatId, signing_address: signer } });
+  }
+}
+
+/** One swap through the vault: verified quote -> MPC-signed intent -> verifier -> (mock) solver. */
+async function swap(from: string, to: string, amount: bigint, side: object) {
+  // 0.5%: minAmountOut must stay within the contract's max_slippage_bps of the oracle price.
+  const q = await oneclick.quote({ dry: false, swapType: "EXACT_INPUT", slippageTolerance: 50, originAsset: from, destinationAsset: to, amount: amount.toString(), deadline: new Date(Date.now() + 10 * 60_000).toISOString(), ...side });
+  const salt = await view<string>(NET, VERIFIER, "current_salt");
+  const tx = await keeperCall("sign_quote", { message: msg(q), signature: q.signature, salt_hex: salt }, 300);
+  const { signed_count } = await view(NET, VAULT, "get_state");
+  const [[, s]] = await view(NET, VAULT, "get_signed", { from: String(signed_count - 1), limit: 1 });
+  // Testnet: submit the vault-signed intent to the mock verifier, then the mock solver fills it.
+  await mustCall(KEEPER, VERIFIER, "execute_intents", { signed: [{ standard: "erc191", payload: s.payload, signature: mpcToIntentsSignature(s.signature) }] }, { gas: 100, legacy: true });
+  await oneclick.fill(OWNER, VERIFIER, q);
+  return tx.tx;
+}
+
 async function cycle() {
   const state = await view(NET, VAULT, "get_state");
   const { vault_address: vaultAddress, usdc_token_id: usdcToken } = state.config;
   if (state.paused) return log("vault paused, skipping");
   if (BigInt(state.pending_usdc) > 0n) log("swept deposits, tx", (await mustCall(KEEPER, VAULT, "sweep", {}, { gas: 150, legacy: true })).tx);
-  const intentsSide = { refundTo: vaultAddress, refundType: "INTENTS", recipient: vaultAddress, recipientType: "INTENTS", depositType: "INTENTS" };
-  const deadline = () => new Date(Date.now() + 10 * 60_000).toISOString();
+  const side = { refundTo: vaultAddress, refundType: "INTENTS", recipient: vaultAddress, recipientType: "INTENTS", depositType: "INTENTS" };
+  const nowMs = Date.now();
 
   // 1. prices: sell ~1 USDC worth of each asset for USDC
   const [meta, ctxs] = await retry(() => info.metaAndAssetCtxs());
@@ -52,73 +136,86 @@ async function cycle() {
   const priceQuotes = await Promise.all(
     ASSETS.map((a) => {
       const amount = (PRICE_SAMPLE_USDC * 10n ** BigInt(a.decimals)) / BigInt(Math.round(mark(a.hlCoin) * 1e6));
-      return oneclick.quote({ dry: true, swapType: "EXACT_INPUT", slippageTolerance: 100, originAsset: a.tokenId, destinationAsset: usdcToken, amount: amount.toString(), deadline: deadline(), ...intentsSide });
+      return oneclick.quote({ dry: true, swapType: "EXACT_INPUT", slippageTolerance: 100, originAsset: a.tokenId, destinationAsset: usdcToken, amount: amount.toString(), deadline: new Date(nowMs + 10 * 60_000).toISOString(), ...side });
     }),
   );
   await keeperCall("report_prices", { quotes: priceQuotes.map((r) => ({ message: msg(r), signature: r.signature })) });
 
-  // 2. idle USDC -> spot
-  const tokens = [usdcToken, ...ASSETS.map((a) => a.tokenId)];
-  let balances = (await view<string[]>(NET, VERIFIER, "mt_batch_balance_of", { account_id: vaultAddress, token_ids: tokens })).map(BigInt);
-  const idle = balances[0]! - BigInt(state.owed_usdc);
-  if (idle >= MIN_TRADE_USDC) {
-    const amount = idle < BigInt(state.params.max_swap_usdc) ? idle : BigInt(state.params.max_swap_usdc);
-    // 0.5%: minAmountOut must stay within the contract's max_slippage_bps of the oracle price.
-    const q = await oneclick.quote({ dry: false, swapType: "EXACT_INPUT", slippageTolerance: 50, originAsset: usdcToken, destinationAsset: TARGET.tokenId, amount: amount.toString(), deadline: deadline(), ...intentsSide });
-    const salt = await view<string>(NET, VERIFIER, "current_salt");
-    const signedTx = await keeperCall("sign_quote", { message: msg(q), signature: q.signature, salt_hex: salt }, 300);
-    const { signed_count } = await view(NET, VAULT, "get_state");
-    const [[, s]] = await view(NET, VAULT, "get_signed", { from: String(signed_count - 1), limit: 1 });
-    // Testnet: submit the vault-signed intent to the mock verifier, then the mock solver fills it.
-    await mustCall(KEEPER, VERIFIER, "execute_intents", { signed: [{ standard: "erc191", payload: s.payload, signature: mpcToIntentsSignature(s.signature) }] }, { gas: 100, legacy: true });
-    await oneclick.fill(OWNER, VERIFIER, q);
-    log(`bought ${TARGET.symbol} with ${Number(amount) / 1e6} USDC (sign tx ${signedTx.tx})`);
-    balances = (await view<string[]>(NET, VERIFIER, "mt_batch_balance_of", { account_id: vaultAddress, token_ids: tokens })).map(BigInt);
+  // 2. strategist
+  let p = plan(await view<[number, OnChainDecision][]>(NET, VAULT, "get_decisions", { from: "0", limit: 500 }).then((d) => d.map(([, x]) => x)), nowMs);
+  if (nowMs - p.lastStrategistMs >= STRATEGIST_EVERY_MS) {
+    const mkts = await markets(meta, ctxs);
+    log("funding 8h APR:", mkts.map((m) => `${m.symbol} ${m.fundingApr8h.toFixed(1)}% (OI $${(m.openInterestUsd / 1e6).toFixed(1)}M)`).join(", "));
+    const ctx: Context = { active: p.target, heldSinceMs: p.heldSinceMs, nowMs, rotationsLast24h: p.rotationsLast24h, rotationCostBps: ROTATION_COST_BPS, allowlist: ASSETS.map((a) => a.symbol) };
+    await decide(ctx, mkts, p);
+    p = plan(await view<[number, OnChainDecision][]>(NET, VAULT, "get_decisions", { from: "0", limit: 500 }).then((d) => d.map(([, x]) => x)), nowMs);
   }
 
-  // 3. hedge: short size per asset = spot held, rounded to Hyperliquid's size step
+  // 3. converge spot: one capped swap toward "everything in target" (or USDC when parked)
+  const tokens = [usdcToken, ...ASSETS.map((a) => a.tokenId)];
+  const readBalances = async () => (await view<string[]>(NET, VERIFIER, "mt_batch_balance_of", { account_id: vaultAddress, token_ids: tokens })).map(BigInt);
+  let balances = await readBalances();
+  const cap = BigInt(state.params.max_swap_usdc);
+  const usdValue = (i: number) => (balances[i + 1]! * BigInt(Math.round(mark(ASSETS[i]!.hlCoin) * 1e6))) / 10n ** BigInt(ASSETS[i]!.decimals);
+  const targetToken = p.target ? assetBySymbol(p.target).tokenId : usdcToken;
+  const stray = ASSETS.findIndex((a, i) => a.tokenId !== targetToken && usdValue(i) >= MIN_TRADE_USDC);
+  const idle = balances[0]! - BigInt(state.owed_usdc);
+  if (stray >= 0) {
+    const value = usdValue(stray);
+    const amount = value > cap ? (balances[stray + 1]! * cap) / value : balances[stray + 1]!;
+    log(`moved ${ASSETS[stray]!.symbol} -> ${p.target ?? "USDC"} (sign tx ${await swap(ASSETS[stray]!.tokenId, targetToken, amount, side)})`);
+    balances = await readBalances();
+  } else if (p.target && idle >= MIN_TRADE_USDC) {
+    const amount = idle < cap ? idle : cap;
+    log(`bought ${p.target} with ${Number(amount) / 1e6} USDC (sign tx ${await swap(usdcToken, targetToken, amount, side)})`);
+    balances = await readBalances();
+  }
+
+  // 4. hedge: short size per asset = spot held, rounded to Hyperliquid's size step
   let hl = await retry(() => info.clearinghouseState({ user: vaultAddress }));
   // A failed hedge must not stop the report below: a stale NAV would block deposits.
   try {
     for (const [i, a] of ASSETS.entries()) {
       const idx = meta.universe.findIndex((u) => u.name === a.hlCoin);
-      const step = 10 ** -meta.universe[idx]!.szDecimals;
+      const szDec = meta.universe[idx]!.szDecimals;
+      const step = 10 ** -szDec;
       const spot = Number(balances[i + 1]!) / 10 ** a.decimals;
-      const short = -Number(hl.assetPositions.find((p) => p.position.coin === a.hlCoin)?.position.szi ?? 0);
+      const short = -Number(hl.assetPositions.find((x) => x.position.coin === a.hlCoin)?.position.szi ?? 0);
       const delta = Math.floor((spot - short) / step) * step; // >0: short more, <0: buy back
       if (Math.abs(delta) * mark(a.hlCoin) < 1) continue;
-      await retry(() => exchange.updateLeverage({ asset: idx, isCross: true, leverage: LEVERAGE }));
+      await retry(() => exchange.updateLeverage({ asset: idx, isCross: true, leverage: p.leverage }));
       const isBuy = delta < 0;
       const px = mark(a.hlCoin) * (isBuy ? 1.01 : 0.99);
+      const size = Math.abs(delta).toFixed(szDec);
       const res = await retry(() =>
         exchange.order({
-          orders: [{ a: idx, b: isBuy, p: Number(px.toPrecision(5)).toFixed(Math.max(0, 6 - meta.universe[idx]!.szDecimals)).replace(/\.?0+$/, ""), s: Math.abs(delta).toFixed(meta.universe[idx]!.szDecimals), r: isBuy, t: { limit: { tif: "Ioc" } } }],
+          orders: [{ a: idx, b: isBuy, p: Number(px.toPrecision(5)).toFixed(Math.max(0, 6 - szDec)).replace(/\.?0+$/, ""), s: size, r: isBuy, t: { limit: { tif: "Ioc" } } }],
           grouping: "na",
         }),
       );
-      log(`${isBuy ? "reduced" : "shorted"} ${a.hlCoin} ${Math.abs(delta)} ->`, JSON.stringify(res.response.data.statuses));
+      log(`${isBuy ? "reduced" : "shorted"} ${a.hlCoin} ${size} ->`, JSON.stringify(res.response.data.statuses));
     }
   } catch (e) {
     log("hedge failed:", (e as Error).message);
   }
 
-  // 4. report the Hyperliquid side
+  // 5. report the Hyperliquid side
   hl = await retry(() => info.clearinghouseState({ user: vaultAddress }));
   const positions = hl.assetPositions
-    .filter((p) => Number(p.position.szi) < 0)
-    .map(({ position: p }) => {
-      const a = ASSETS.find((x) => x.hlCoin === p.coin)!;
-      const size = -Number(p.szi);
+    .filter((x) => Number(x.position.szi) < 0)
+    .map(({ position: x }) => {
+      const a = ASSETS.find((y) => y.hlCoin === x.coin)!;
+      const size = -Number(x.szi);
       return {
         symbol: a.symbol,
         size: BigInt(Math.round(size * 10 ** Math.min(a.decimals, 12))) * 10n ** BigInt(Math.max(0, a.decimals - 12)) + "",
-        entry_notional: Math.round(size * Number(p.entryPx) * 1e6).toString(),
+        entry_notional: Math.round(size * Number(x.entryPx) * 1e6).toString(),
       };
     });
   const accountValue = Math.round(Number(hl.marginSummary.accountValue) * 1e6).toString();
   await keeperCall("report_position", { positions, account_value: accountValue });
   const after = await view(NET, VAULT, "get_state");
-  log(`NAV ${Number(after.snapshot?.nav ?? 0) / 1e6} USDC | HL account ${Number(accountValue) / 1e6} | positions ${JSON.stringify(positions)} | paused ${after.paused}`);
+  log(`NAV ${Number(after.snapshot?.nav ?? 0) / 1e6} USDC | target ${p.target ?? "PARKED"} | HL ${Number(accountValue) / 1e6} | ${JSON.stringify(positions)} | paused ${after.paused}`);
 }
 
 const once = process.argv.includes("--once");
