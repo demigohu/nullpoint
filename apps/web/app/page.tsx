@@ -1,176 +1,131 @@
 import Link from "next/link";
-import { ArrowRight, Lock, Robot, SealCheck, ShieldCheck } from "@phosphor-icons/react/dist/ssr";
-import { LineChart } from "@/components/line-chart";
-import { currentNet, hedgeBacktest, vaultOverview } from "@/lib/data";
+import { Assets } from "@/components/landing/assets";
+import { Cycle } from "@/components/landing/cycle";
+import { Hero } from "@/components/landing/hero";
+import { Loader } from "@/components/landing/loader";
+import { Manifesto } from "@/components/landing/manifesto";
+import { Smooth } from "@/components/landing/smooth";
+import { TwoLegs } from "@/components/landing/two-legs";
+import { Wordmark } from "@/components/hud";
+import { currentNet, fundingRadar, hedgeBacktest, vaultOverview } from "@/lib/data";
+
+// Copy: COPY.md "Landing". Layout and motion: DESIGN.md §7.
+const BUILT_WITH = [
+  ["NEAR Protocol", "Runs the vault contract: your shares, the share price, and every rule on this page."],
+  ["NEAR Chain Signatures", "Gives the contract its own Ethereum-style address. That address owns the Hyperliquid account and the Intents account, so money leaves only when the contract signs."],
+  ["NEAR Intents (1Click)", "Swaps USDC for BTC, ETH or NEAR and moves margin to Hyperliquid. Its signed quotes are also the contract's price feed."],
+  ["NEAR AI Cloud", "Runs the strategist model inside a hardware enclave. Each answer is signed, and the signature is checked against the enclave's attestation."],
+  ["Hyperliquid", "Holds the short and pays funding every hour. The keeper's key there can place orders and cannot withdraw."],
+] as const;
+
+const ATTACKS = [
+  ["withdraw to attacker", "Hyperliquid: billed to the agent's own empty account"],
+  ["agentSendAsset to attacker", "Hyperliquid: only to the same user or sub-accounts"],
+  ["1Click quote paying attacker", "Vault contract: quote not signed by 1Click"],
+] as const;
+
+const GUARDS = [
+  ["Every swap is checked on-chain", "The contract verifies 1Click's signature, the recipient and the price before NEAR's MPC network signs anything."],
+  ["Every decision is on the record", "Each strategist call is stored on-chain with its enclave signature, whether the limits accepted it or not."],
+  ["Withdrawals pay themselves", "The keeper pays queued withdrawals in order. If one waits more than 10 minutes, you can finish it from your own wallet."],
+] as const;
+
+const RISKS = [
+  ["Funding turns negative", "Shorts pay instead of earn. The vault parks in USDC when no coin pays, so yield can be zero."],
+  ["Hyperliquid and bridges", "The short lives on Hyperliquid and spot is bridged BTC or ETH. If either fails, the vault takes the loss."],
+  ["A bad trade by the keeper", "A stolen trading key can't withdraw, but it can trade the short badly. Limits cap the damage; they don't remove it."],
+  ["Sharp rallies", "A fast move up squeezes the 2x short. The keeper shrinks both legs early; a large gap can still liquidate."],
+] as const;
+
+const title = "wdth-118 text-[clamp(2.2rem,4.6vw,5.4rem)] font-extrabold leading-[0.9] tracking-[-0.045em]";
 
 export default async function Landing() {
   const net = await currentNet();
-  const [bt, ov] = await Promise.all([hedgeBacktest(30), vaultOverview(net).catch(() => null)]);
-  const btcMove = bt.at(-1)!.btc - 100;
-  const hedgedMove = bt.at(-1)!.hedged - 100;
-  const lastDecision = ov?.decisions.at(-1);
+  const [bt, ov, radar] = await Promise.all([hedgeBacktest(30), vaultOverview(net).catch(() => null), fundingRadar("mainnet").catch(() => [])]);
+  const longShare = ov?.hedge.longShare ?? 0.5;
 
   return (
-    <main className="mx-auto max-w-7xl px-4 md:px-6">
-      {/* Hero */}
-      <section className="grid items-center gap-10 pt-12 pb-16 md:pt-20 lg:grid-cols-[1fr_1.15fr] [&>*]:min-w-0">
-        <div>
-          <h1 className="text-4xl font-semibold leading-[1.05] tracking-tighter md:text-5xl lg:text-6xl">
-            Earn funding.
-            <br />
-            Not volatility.
-          </h1>
-          <p className="mt-5 max-w-[46ch] text-lg leading-relaxed text-text-2">
-            Deposit USDC. A NEAR contract holds spot and shorts it on Hyperliquid, so price moves cancel and funding accrues.
-          </p>
-          <div className="mt-8 flex flex-wrap gap-3">
-            <Link href="/app" className="inline-flex items-center gap-2 rounded-control bg-accent px-5 py-2.5 font-medium text-accent-ink transition active:scale-[0.98]">
-              Open vault <ArrowRight weight="bold" />
-            </Link>
-            <Link href="/proof" className="inline-flex items-center rounded-control border border-line px-5 py-2.5 font-medium text-text hover:bg-surface-2">
-              Check the proof
-            </Link>
-          </div>
-        </div>
-        <div className="rounded-panel border border-line bg-surface p-4 md:p-6">
-          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-            <p className="text-sm text-text-2">Last 30 days, indexed to 100</p>
-            <p className="num text-sm">
-              <span style={{ color: "var(--series-btc)" }}>BTC {btcMove >= 0 ? "+" : ""}{btcMove.toFixed(1)}%</span>
-              <span className="mx-2 text-text-3">/</span>
-              <span className="text-accent">hedged {hedgedMove >= 0 ? "+" : ""}{hedgedMove.toFixed(2)}%</span>
-            </p>
-          </div>
-          <LineChart
-            baseline={100}
-            series={[
-              { key: "btc", label: "BTC", color: "var(--series-btc)", points: bt.map((p) => ({ x: p.t, y: p.btc })) },
-              { key: "hedged", label: "Hedged", color: "var(--series-nav)", points: bt.map((p) => ({ x: p.t, y: p.hedged })) },
-            ]}
-            caption="Simulated from real Hyperliquid mainnet BTC prices (4h) and hourly funding, using the vault's 2x split. Fees not included."
-          />
-        </div>
-      </section>
+    <main>
+      <Smooth />
+      <Loader />
+      <Hero longShare={longShare} />
+      <TwoLegs bt={bt} longShare={longShare} />
+      <Cycle liveMode={ov?.hedge.mode ?? "park"} />
+      {radar.length > 0 && <Assets radar={radar} active={ov?.hedge.symbol ?? null} />}
 
-      {/* Live state */}
-      <section className="grid gap-px overflow-hidden rounded-panel border border-line bg-line sm:grid-cols-2 lg:grid-cols-4">
-        {ov ? (
-          <>
-            <Stat label={`Vault NAV (${net.network})`} value={`$${(Number(ov.state.snapshot?.nav ?? 0) / 1e6).toFixed(2)}`} />
-            <Stat label="Hedging" value={ov.state.positions.map((p) => p.symbol).join(", ") || "Parked in USDC"} />
-            <Stat label="Strategist decisions on-chain" value={String(ov.decisions.length)} />
-            <Stat label="Last decision" value={lastDecision ? `${lastDecision.action}${lastDecision.target ? ` ${lastDecision.target}` : ""} (${lastDecision.source})` : "None yet"} />
-          </>
-        ) : (
-          <div className="bg-surface p-6 sm:col-span-2 lg:col-span-4">
-            <p className="font-medium">The {net.network} vault isn&apos;t live yet.</p>
-            <p className="mt-1 text-sm text-text-2">Switch to testnet in the top bar to see the running vault.</p>
-          </div>
-        )}
-      </section>
-
-      {/* How it works */}
-      <section className="py-24">
-        <h2 className="max-w-[22ch] text-3xl font-semibold tracking-tight md:text-4xl">Two legs, one contract, no price exposure.</h2>
-        <ol className="mt-10 grid gap-8 md:grid-cols-[1fr_auto_1fr_auto_1fr] md:items-start">
-          {[
-            ["Deposit", "USDC goes into the vault contract on NEAR and you get shares priced off its on-chain NAV."],
-            ["Hedge", "The contract buys spot BTC, ETH or NEAR through NEAR Intents and holds it. An equal short opens on Hyperliquid."],
-            ["Earn", "Spot and short cancel each other. Longs pay the short funding every hour, and the share price rises."],
-          ].map(([t, d], i) => (
-            <li key={t} className="contents">
-              {i > 0 && <ArrowRight className="hidden self-center text-text-3 md:block" size={20} />}
-              <div>
-                <h3 className="text-lg font-medium">{t}</h3>
-                <p className="mt-2 max-w-[38ch] text-text-2">{d}</p>
-              </div>
+      <section className="p-[var(--pad)] py-[clamp(4rem,10vw,9rem)]">
+        <h2 className={title}>Five pieces, each with one job.</h2>
+        <ul className="mt-10 border-t border-tc">
+          {BUILT_WITH.map(([name, job]) => (
+            <li key={name} className="group relative grid gap-2 border-b border-tc py-5 md:grid-cols-12 md:items-baseline">
+              <span aria-hidden className="absolute inset-0 bg-tc [clip-path:inset(0_100%_0_0)] transition-[clip-path] duration-[280ms] ease-[var(--ease-hud)] group-hover:[clip-path:inset(0)]" />
+              <h3 className="wdth-118 relative text-[clamp(1.6rem,3vw,3.4rem)] font-bold leading-none tracking-[-0.04em] transition-colors duration-[280ms] group-hover:text-fc md:col-span-6">{name}</h3>
+              <p className="relative max-w-[56ch] text-[15px] leading-[1.5] transition-colors duration-[280ms] group-hover:text-fc md:col-span-6">{job}</p>
             </li>
           ))}
-        </ol>
+        </ul>
       </section>
 
-      {/* Security */}
-      <section>
-        <h2 className="max-w-[24ch] text-3xl font-semibold tracking-tight md:text-4xl">The bot runs the trades. It can&apos;t take the money.</h2>
-        <div className="mt-10 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-          <div className="rounded-panel border border-line bg-surface p-6 lg:row-span-2">
-            <ShieldCheck size={28} className="text-accent" />
-            <h3 className="mt-4 text-xl font-medium">We tried to steal from it with the keeper&apos;s own keys</h3>
-            <p className="mt-2 max-w-[52ch] text-text-2">
-              The Hyperliquid account belongs to the vault contract through NEAR Chain Signatures. The keeper only holds a trading key.
-            </p>
-            <ul className="num mt-6 space-y-3 text-sm">
-              {[
-                ["withdraw to attacker", "Hyperliquid: attributed to the agent's own empty account"],
-                ["agentSendAsset to attacker", "Hyperliquid: only to same user or sub-accounts"],
-                ["1Click quote paying attacker", "Vault contract: quote not signed by 1Click"],
-              ].map(([a, r]) => (
-                <li key={a} className="rounded-control bg-surface-2 px-4 py-3">
-                  <span className="text-text">{a}</span>
-                  <span className="block text-text-3">rejected: {r}</span>
+      <section className="grid gap-[var(--pad)] p-[var(--pad)] py-[clamp(4rem,10vw,9rem)]">
+        <h2 className={`${title} max-w-[18ch]`}>The bot runs the trades. It can&apos;t take the money.</h2>
+        <Manifesto text="Delta-neutral funds usually ask you to trust whoever holds the exchange keys. Here the exchange account belongs to a smart contract. The keeper holds a key that can place orders and nothing else. Money moves only when the contract signs, and it signs only when a swap pays the vault, at a fair price, under a cap." />
+        <div className="mt-8 grid gap-[var(--pad)] md:grid-cols-12">
+          <div className="bg-tc p-[var(--pad)] text-fc md:col-span-7 md:row-span-3">
+            <h3 className="wdth-112 text-[clamp(1.5rem,2.4vw,2.6rem)] font-bold leading-[1.02] tracking-[-0.035em]">We tried to steal from it with the keeper&apos;s own keys.</h3>
+            <ul className="num mt-8 grid gap-4 text-[14px]">
+              {ATTACKS.map(([a, r]) => (
+                <li key={a} className="border-t border-fc pt-3">
+                  <p className="font-bold">{a}</p>
+                  <p>rejected by {r}</p>
                 </li>
               ))}
             </ul>
-            <p className="mt-4 text-sm text-text-3">Run it yourself: scripts/attack.ts</p>
-          </div>
-          <div className="rounded-panel border border-line bg-accent-soft p-6">
-            <SealCheck size={28} className="text-accent" />
-            <h3 className="mt-4 text-lg font-medium">Every swap is checked on-chain</h3>
-            <p className="mt-2 text-text-2">
-              The contract verifies 1Click&apos;s ed25519 signature, the recipient and the price before NEAR&apos;s MPC network signs anything.
+            <p className="num mt-8 text-[13px]">
+              Run it yourself: <code>npm run attack</code> ·{" "}
+              <Link href="/proof" className="underline underline-offset-2">see the proof ↗</Link>
             </p>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-            <div className="rounded-panel border border-line bg-surface p-6">
-              <Robot size={28} className="text-accent" />
-              <h3 className="mt-4 text-lg font-medium">A boxed-in strategist</h3>
-              <p className="mt-2 text-text-2">A private model on NEAR AI Cloud picks the asset. Hard limits decide what executes.</p>
+          {GUARDS.map(([h, b]) => (
+            <div key={h} className="panel p-[var(--pad)] md:col-span-5">
+              <h3 className="wdth-110 text-[clamp(1.2rem,1.6vw,1.6rem)] font-bold tracking-[-0.03em]">{h}</h3>
+              <p className="mt-2 text-[15px] leading-[1.5]">{b}</p>
             </div>
-            <div className="rounded-panel border border-line bg-surface p-6">
-              <Lock size={28} className="text-accent" />
-              <h3 className="mt-4 text-lg font-medium">Withdraw without us</h3>
-              <p className="mt-2 text-text-2">Signed withdrawals can be executed by the user. The keeper can&apos;t sit on your funds.</p>
-            </div>
-          </div>
+          ))}
         </div>
       </section>
 
-      {/* Risks */}
-      <section className="py-24">
-        <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">What can still go wrong</h2>
-        <dl className="mt-10 grid gap-x-12 gap-y-8 md:grid-cols-2">
-          {[
-            ["Funding turns negative", "Shorts pay instead of earn. The vault parks in USDC when no asset pays, so yield can be zero."],
-            ["Hyperliquid and bridges", "The short lives on Hyperliquid and spot is bridged BTC or ETH. Their failures are the vault's failures."],
-            ["A bad trade by the keeper", "A stolen trading key can't withdraw, but it can trade the short badly. Limits cap it; they don't remove it."],
-            ["Sharp rallies", "A fast move up squeezes the 2x short. The keeper shrinks both legs early; a large gap can still liquidate."],
-          ].map(([t, d]) => (
+      <section className="p-[var(--pad)] py-[clamp(4rem,10vw,9rem)]">
+        <h2 className={title}>What can still go wrong</h2>
+        <dl className="mt-10 grid gap-x-[var(--pad)] gap-y-8 border-t border-tc pt-8 md:grid-cols-2">
+          {RISKS.map(([t, d]) => (
             <div key={t}>
-              <dt className="font-medium">{t}</dt>
-              <dd className="mt-1 max-w-[52ch] text-text-2">{d}</dd>
+              <dt className="font-mono text-[12px] uppercase tracking-[0.2em]">{t}</dt>
+              <dd className="mt-2 max-w-[52ch] text-[16px] leading-[1.5]">{d}</dd>
             </div>
           ))}
         </dl>
       </section>
 
-      <section className="flex flex-col items-start justify-between gap-6 rounded-panel border border-line bg-surface p-8 md:flex-row md:items-center">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Watch it run.</h2>
-          <p className="mt-1 text-text-2">Positions, funding, and every strategist decision with its TEE signature.</p>
+      <section className="overflow-hidden border-t border-tc">
+        <div aria-hidden className="marquee flex w-max whitespace-nowrap py-6 font-mono text-[clamp(3rem,10vw,9rem)] font-bold leading-none">
+          {[0, 1].map((k) => (
+            <span key={k} className="pr-[0.5em]">
+              NULLPOINT&nbsp;&nbsp;+/−&nbsp;&nbsp;BTC&nbsp;&nbsp;ETH&nbsp;&nbsp;NEAR&nbsp;&nbsp;0&nbsp;&nbsp;NULLPOINT&nbsp;&nbsp;+/−&nbsp;&nbsp;BTC&nbsp;&nbsp;ETH&nbsp;&nbsp;NEAR&nbsp;&nbsp;0&nbsp;&nbsp;
+            </span>
+          ))}
         </div>
-        <Link href="/dashboard" className="inline-flex items-center gap-2 rounded-control border border-line px-5 py-2.5 font-medium hover:bg-surface-2">
-          Open dashboard <ArrowRight weight="bold" />
-        </Link>
+        <div className="grid gap-[var(--pad)] border-t border-tc p-[var(--pad)] md:grid-cols-12 md:items-end">
+          <p className={`${title} md:col-span-7`}>Long one, short one, net zero.</p>
+          <div className="flex flex-wrap items-center gap-3 md:col-span-5 md:justify-end">
+            <Link href="/app" className="btn" data-label="Deposit USDC">Deposit USDC</Link>
+            <a href="#main" className="btn btn-ghost" data-label="Start over">Start over</a>
+          </div>
+          <p className="font-mono text-[12px] md:col-span-12">
+            <Wordmark /> ·{" "}
+            {net.network === "testnet" ? "Running on NEAR testnet with test USDC." : "Running on NEAR mainnet."}
+          </p>
+        </div>
       </section>
     </main>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="bg-surface p-5">
-      <p className="text-sm text-text-3">{label}</p>
-      <p className="num mt-1 truncate text-xl">{value}</p>
-    </div>
   );
 }

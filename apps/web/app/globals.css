@@ -1,72 +1,141 @@
 @import "tailwindcss";
 
-/* Tokens: one accent (aqua), one radius system (panels 12px, controls 8px). Dark by default,
-   light follows the OS. Chart series colors come from the validated dataviz palette:
-   NAV = aqua slot, BTC = orange slot (CVD ΔE ≥ 9 in both modes). */
-:root {
-  color-scheme: dark;
-  --bg: #0e100f;
-  --surface: #151816;
-  --surface-2: #1c201e;
-  --line: #262b28;
-  --text: #ecedeb;
-  --text-2: #a9aeaa;
-  --text-3: #7c837e;
-  --accent: #34c38f;
-  --accent-ink: #0b1310;
-  --accent-soft: rgb(52 195 143 / 0.12);
-  --danger: #e66767;
-  --series-nav: #199e70;
-  --series-btc: #d95926;
-}
+/* DESIGN.md §1: two colors per screen. --t = sign, --f = ground, set per mode on <html data-mode>.
+   Registered so mode changes tween instead of snapping. Radius is 0 everywhere. */
+@property --t { syntax: "<color>"; inherits: true; initial-value: #ff5b14; }
+@property --f { syntax: "<color>"; inherits: true; initial-value: #0a0a0a; }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color-scheme: light;
-    --bg: #f6f7f6;
-    --surface: #fdfdfc;
-    --surface-2: #eff1ef;
-    --line: #dfe3e0;
-    --text: #121413;
-    --text-2: #4a514d;
-    --text-3: #67706a;
-    --accent: #11845b;
-    --accent-ink: #fdfdfc;
-    --accent-soft: rgb(17 132 91 / 0.1);
-    --danger: #c23a3a;
-    --series-nav: #1baf7a;
-    --series-btc: #eb6834;
-  }
+:root {
+  --ink: #0a0a0a;
+  --paper: #f2f1ec;
+  --t: #ff5b14;
+  --f: var(--ink);
+  --alarm: #ff3b30;
+  --dim: color-mix(in srgb, var(--t) 35%, var(--f));
+  --ease-hud: cubic-bezier(0.7, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --pad: clamp(16px, 2.2vw, 40px);
+  --hud: clamp(30px, 2.4vw, 38px);
+  color-scheme: dark;
+  transition: --t 850ms var(--ease-hud), --f 850ms var(--ease-hud);
+}
+:root[data-mode="eth"] { --t: #2433ff; --f: var(--paper); --alarm: #c8160e; color-scheme: light; }
+:root[data-mode="near"] { --t: #00e59b; }
+:root[data-mode="park"] { --t: var(--paper); }
+
+@media (prefers-reduced-motion: reduce) {
+  :root { transition: none; }
 }
 
 @theme inline {
-  --color-bg: var(--bg);
-  --color-surface: var(--surface);
-  --color-surface-2: var(--surface-2);
-  --color-line: var(--line);
-  --color-text: var(--text);
-  --color-text-2: var(--text-2);
-  --color-text-3: var(--text-3);
-  --color-accent: var(--accent);
-  --color-accent-ink: var(--accent-ink);
-  --color-accent-soft: var(--accent-soft);
-  --color-danger: var(--danger);
-  --color-series-nav: var(--series-nav);
-  --color-series-btc: var(--series-btc);
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
-  --radius-panel: 12px;
-  --radius-control: 8px;
+  --color-tc: var(--t);
+  --color-fc: var(--f);
+  --color-dim: var(--dim);
+  --color-alarm: var(--alarm);
+  --font-sans: var(--font-archivo), "Helvetica Neue", Arial, sans-serif;
+  --font-mono: var(--font-jb), ui-monospace, Menlo, monospace;
+  --radius-*: initial;
+}
+
+/* Archivo's width axis carries the hierarchy (DESIGN.md §2): wdth-100 … wdth-125 */
+@utility wdth-* {
+  font-variation-settings: "wdth" --value(integer);
 }
 
 body {
-  background: var(--bg);
-  color: var(--text);
+  background: var(--f);
+  color: var(--t);
   font-family: var(--font-sans);
+  font-variation-settings: "wdth" 100;
   -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
 }
+
+::selection { background: var(--t); color: var(--f); }
+
+:focus-visible { outline: 2px solid var(--t); outline-offset: 2px; }
 
 .num {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+}
+
+/* Mono label in an inverted box. */
+.chip {
+  display: inline-block;
+  background: var(--t);
+  color: var(--f);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  padding: 5px 8px;
+}
+
+/* Solid ground block: lifts text off the field. */
+.panel {
+  background: var(--f);
+  border: 1px solid var(--t);
+}
+
+/* Buttons: hover wipes an inverted copy of the label (data-label) in from the left. */
+.btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 22px;
+  border: 1px solid var(--t);
+  background: var(--t);
+  color: var(--f);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: scale 150ms ease-out;
+}
+.btn-ghost { background: var(--f); color: var(--t); }
+.btn::after {
+  content: attr(data-label);
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--f);
+  color: var(--t);
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path 280ms var(--ease-hud);
+}
+.btn-ghost::after { background: var(--t); color: var(--f); }
+@media (hover: hover) and (pointer: fine) {
+  .btn:not(:disabled):hover::after { clip-path: inset(0 0 0 0); }
+}
+.btn:not(:disabled):active { scale: 0.96; }
+.btn:disabled { cursor: not-allowed; background: var(--f); color: var(--dim); border-color: var(--dim); }
+.btn:disabled::after { display: none; }
+
+/* Glossary term (COPY.md §G). */
+.term {
+  text-decoration: underline dotted 1px;
+  text-underline-offset: 3px;
+  cursor: help;
+}
+
+/* Loader: hidden before paint on repeat visits (layout boot script sets data-loaded). */
+:root[data-loaded="1"] .loader { display: none; }
+@media (prefers-reduced-motion: reduce) { .loader { display: none; } }
+
+/* Footer marquee: linear, pauses with the HUD pause. */
+@keyframes marquee { to { transform: translateX(-50%); } }
+.marquee { animation: marquee 38s linear infinite; }
+:root[data-paused="1"] .marquee { animation-play-state: paused; }
+:root[data-paused="1"] .blink { animation: none; }
+@keyframes blink { 50% { opacity: 0.2; } }
+.blink { animation: blink 1s steps(1) infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .marquee, .blink { animation: none; }
 }

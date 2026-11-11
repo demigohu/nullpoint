@@ -1,9 +1,11 @@
 // Server-side reads. Everything shown on the site comes from the vault contract, the verifier,
 // or Hyperliquid's public API; nothing is stored by the web app.
 import "server-only";
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { ASSETS, hlInfo, view, type Network } from "@nullpoint/core";
 import { DEFAULT_NET, NET_COOKIE, NETS, type NetConfig } from "./config";
+import { modeOf } from "./modes";
 
 export async function currentNet(): Promise<NetConfig> {
   const n = (await cookies()).get(NET_COOKIE)?.value as Network | undefined;
@@ -35,8 +37,8 @@ export type NavPoint = { ms: number; nav: string; total_shares: string };
 const last = async <T,>(c: NetConfig, method: string, count: number, limit: number) =>
   (await view<[number, T][]>(c.network, c.vault, method, { from: String(Math.max(0, count - limit)), limit })).map(([id, x]) => ({ id, ...x }));
 
-/** Everything the dashboard and landing need, in one round of parallel reads. */
-export async function vaultOverview(c: NetConfig) {
+/** Everything the pages need, in one round of parallel reads (cached per request: the layout and the page share it). */
+export const vaultOverview = cache(async (c: NetConfig) => {
   if (!c.deployed) return null;
   const state = await view<VaultState>(c.network, c.vault, "get_state");
   const [decisions, signed, nav, hl] = await Promise.all([
@@ -53,8 +55,19 @@ export async function vaultOverview(c: NetConfig) {
     return { symbol: a.symbol, qty: Number(qty) / 10 ** a.decimals, usd: Number(usdc) / 1e6 };
   });
   const sharePrice = BigInt(state.total_shares) > 0n && state.snapshot ? Number(state.snapshot.nav) / Number(state.total_shares) : 1;
-  return { state, decisions, signed, nav, hl, spot, sharePrice };
-}
+  // The two legs, for the field and the Δ readout.
+  const shorts: { coin: string; szi: string; positionValue: string }[] = hl?.assetPositions?.map((p: { position: any }) => p.position) ?? [];
+  const symbol = state.positions[0]?.symbol ?? null;
+  const longUsd = spot.reduce((s, x) => s + x.usd, 0);
+  const shortUsd = shorts.reduce((s, p) => s + Math.abs(Number(p.positionValue)), 0);
+  const hedge = {
+    mode: modeOf(symbol),
+    symbol,
+    longShare: longUsd + shortUsd > 0 ? longUsd / (longUsd + shortUsd) : 0.5,
+    delta: symbol ? (spot.find((x) => x.symbol === symbol)?.qty ?? 0) + Number(shorts.find((p) => p.coin === symbol)?.szi ?? 0) : 0,
+  };
+  return { state, decisions, signed, nav, hl, spot, sharePrice, hedge };
+});
 
 export type Overview = NonNullable<Awaited<ReturnType<typeof vaultOverview>>>;
 

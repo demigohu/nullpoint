@@ -85,8 +85,9 @@ decoration, hover or emphasis.
   --hud: clamp(30px, 2.4vw, 38px);             /* HUD control height */
 }
 ```
-The Tailwind `@theme inline` block exposes them as `bg-f`, `text-t`, `border-t`, `bg-t`, `text-f`,
-`text-alarm`. **Radius is 0 everywhere.** There is no radius token at all.
+The Tailwind `@theme inline` block exposes them as `tc` (sign) and `fc` (ground): `bg-tc`,
+`text-fc`, `border-tc`, plus `dim` and `alarm`. They aren't named `t`/`f` because `border-t` is
+already Tailwind's top border. **Radius is 0 everywhere.** There is no radius token at all.
 
 ---
 
@@ -179,7 +180,7 @@ The HUD is fixed and identical on every page. All controls are Mono and sharp, `
 - **Right edge:** a vertical **7-bit progress readout** made of 7 squares (filled = 1) for the
   scroll percentage in binary, with the decimal value under it rotated 90°. This is the only rotated
   text on the site.
-- **Bottom left**, on app pages: the **delta readout**. It shows `Δ +0.0021 BTC` (spot minus short),
+- **Bottom right**, on app pages: the **delta readout**. It shows `Δ +0.0021 BTC` (spot minus short),
   scrambling to each new value. It turns Alarm if the vault is paused.
 - **Mobile (< 768px):**
   - The page links and the network toggle move into a full-screen menu that opens with a
@@ -230,6 +231,17 @@ All components are sharp-cornered (radius 0) and use only `--t`, `--f`, Dim (non
   the dashboard funding radar.
 - **Toast:** a slim inverted bar at the bottom center of the screen, Mono 12px. It enters with
   `clip-path inset(0 50%) → inset(0)` over 240 ms and exits in 160 ms.
+- **Explainer** (every user action in the app, wording in COPY.md):
+  - **Before you sign:** one or two plain lines inside the action panel, directly above the button.
+    Say how many transactions, what moves where, and what comes back.
+  - **Status track** while the action runs (see above).
+  - **Receipt** after: the plain result, the next thing that will happen, then the tx hash in Mono
+    with an explorer link ↗.
+  - **Errors:** plain words first, then the raw reason in Mono below.
+  - **Glossary term:** a dotted 1px `--t` underline. Tapping or hovering opens a 280px panel that
+    takes the definition from COPY.md §G. Mark only the first use of a term on each page.
+- **Activity feed** (dashboard): one plain sentence per event, with the technical line (method,
+  amount, hash) under it in Mono.
 - **Empty state:** a still field in PARK mode (`0` glyphs) with one sentence and one action
   (for example "No deposits yet. Deposit USDC to mint shares.").
 - **Loading state:** cells fill row by row in Dim with a Mono label `reading chain…`. There are no
@@ -308,15 +320,15 @@ All components are sharp-cornered (radius 0) and use only `--t`, `--f`, Dim (non
 ### `/` Landing (story in chapters, each a different layout)
 1. **Loader** (§6.1).
 2. **Hero** (pinned):
-   - A full-bleed field showing the live mode, with the giant two-line wordmark.
-   - In an inverted panel at the top right sits one lede of 20 words at most: *"A USDC vault that
-     earns perp funding and holds no price risk. Long one leg, short the other, sum zero."*
-   - A primary CTA `Open the vault`.
-   - A live strip: active asset, funding APR, NAV/share.
+   - A full-bleed field in the live mode with the giant two-line wordmark.
+   - An inverted panel holds the headline, sub and CTAs from COPY.md.
+   - The live numbers (active coin, funding, share price) sit in the HUD delta readout, not in the
+     hero.
 3. **Two legs** (pinned scrub, +160%):
    - The field zooms out like an aerial view until the cells resolve into a 30-day chart: BTC price
      (dotted) swinging while the hedged NAV (solid) stays flat.
    - A Mono readout counts the BTC drawdown alongside the vault's change.
+   - A side panel explains where the fee comes from (funding).
    - This replaces the current hero chart.
 4. **One cycle, four verbs** (pinned, +280%):
    - On the left, a list of the keeper cycle: `Sweep`, `Hedge`, `Report`, `Rotate`.
@@ -328,18 +340,24 @@ All components are sharp-cornered (radius 0) and use only `--t`, `--f`, Dim (non
    - The active verb is shown full width at 800, the inactive ones at weight 400. A progress rule
      sits under each verb.
 5. **Three assets** (horizontal pan on desktop, vertical on mobile):
-   - Three monitors: BTC, ETH and NEAR. Each card switches the site to its mode as it reaches the
-     center.
+   - Three monitors: BTC, ETH and NEAR. Each card is drawn in its own asset's duotone (local
+     `--t`/`--f`), so the site's mode keeps meaning "what the vault holds".
    - Each card shows the asset's live funding APR (from `fundingRadar`), its open interest, and
      whether the strategist currently holds it.
    - Frames tilt ±1.5° with scroll.
-6. **It can trade. It can't take the money.**
+6. **Built with** (five-row index):
+   - Each row shows the brand's name in Archivo 700 / wdth 118 and its one job in body text. A
+     monochrome mark in `--t` goes next to the name once the SVGs are in (COPY.md `[NEED]`).
+   - Hovering a row (fine pointer only) inverts it with the clip wipe.
+   - The marks are official SVGs drawn in a single color. The section has no logo wall and no
+     category labels.
+7. **The bot runs the trades. It can't take the money.**
    - A word-scrub manifesto (§6.5), followed by an evidence grid of the four attack results from
      `npm run attack`, each with its on-chain rejection and a link to `/proof`.
    - The grid is asymmetric: one large cell for the keeper-key attack, three small cells.
-7. **What can still go wrong:** a spec grid of risks in Mono with plain answers. It is grouped
+8. **What can still go wrong:** a spec grid of risks in Mono with plain answers. It is grouped
    into 3 clusters (venue, oracle, operator) and has no row borders.
-8. **Footer:**
+9. **Footer:**
    - The marquee.
    - The statement *"Long, short, and nothing in between."*
    - Credits and links.
@@ -405,6 +423,8 @@ All components are sharp-cornered (radius 0) and use only `--t`, `--f`, Dim (non
 
 ## 10. Copy voice
 
+All visible strings come from `COPY.md`. Change the wording there first, then in the code.
+
 - The copy is plain, specific and short. It names the mechanism, never the hype.
   Good: "The keeper can trade. The contract decides where money goes."
 - Numbers are real (live from chain or Hyperliquid) or explicitly labeled as backtest.
@@ -444,7 +464,18 @@ All components are sharp-cornered (radius 0) and use only `--t`, `--f`, Dim (non
 
 ---
 
-## 12. Dependencies to add
+## 12. Brand assets (all generated in code, mode-colored)
+
+- `app/icon.svg`: the favicon, a 32×32 square split into two cells. The left cell is `--t` with a
+  `+` cut out; the right cell is `--f` with a `−` in `--t`. It ships in BTC colors and uses
+  `prefers-color-scheme` only to keep the outline visible on browser tab bars.
+- `app/apple-icon.tsx`: a 180×180 version of the same two cells, made with `ImageResponse`.
+- `app/opengraph-image.tsx`: 1200×630. A still field (seeded, so it looks the same every time)
+  with the wordmark and the hero headline, colored in the vault's live mode at render time.
+- Wallet connector icon (`near-connect`): it points to `/icon.svg`.
+- No external logo file is needed. The wordmark is live type.
+
+## 13. Dependencies to add
 
 ```bash
 npm install gsap@3 lenis@1 --workspace apps/web    # landing only (SplitText ships with gsap 3.13+)

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Two cells: long (+) and short (−). DESIGN.md §12 -->
+  <rect width="32" height="32" fill="#0A0A0A"/>
+  <rect x="1" y="1" width="15" height="30" fill="#FF5B14"/>
+  <rect x="5" y="14.5" width="7" height="3" fill="#0A0A0A"/>
+  <rect x="7" y="12.5" width="3" height="7" fill="#0A0A0A"/>
+  <rect x="20" y="14.5" width="8" height="3" fill="#FF5B14"/>
+  <rect x="0.5" y="0.5" width="31" height="31" fill="none" stroke="#FF5B14"/>
+</svg>

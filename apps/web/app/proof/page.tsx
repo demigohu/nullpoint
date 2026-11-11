@@ -1,16 +1,18 @@
-import { CheckCircle, XCircle } from "@phosphor-icons/react/dist/ssr";
 import { deriveEvmAddress, hlInfo } from "@nullpoint/core";
+import { describeSigned } from "@/lib/activity";
 import { links } from "@/lib/config";
 import { currentNet, vaultOverview } from "@/lib/data";
+
+const H1 = "wdth-118 text-[clamp(2.2rem,4.6vw,5.4rem)] font-extrabold leading-[0.9] tracking-[-0.045em]";
 
 export default async function Proof() {
   const net = await currentNet();
   const ov = await vaultOverview(net).catch(() => null);
   if (!ov) {
     return (
-      <main className="mx-auto max-w-5xl px-4 pt-12 md:px-6">
-        <h1 className="text-3xl font-semibold tracking-tight">Proof</h1>
-        <p className="mt-4 text-text-2">The {net.network} vault isn&apos;t live yet. Switch to testnet in the top bar.</p>
+      <main className="p-[var(--pad)] pt-28">
+        <h1 className={H1}>Check it yourself</h1>
+        <p className="mt-4">The {net.network} vault isn&apos;t live yet. Switch to testnet in the top bar.</p>
       </main>
     );
   }
@@ -89,70 +91,67 @@ export default async function Proof() {
   ];
 
   return (
-    <main className="mx-auto max-w-5xl px-4 pt-12 md:px-6">
-      <h1 className="text-3xl font-semibold tracking-tight">Proof</h1>
-      <p className="mt-2 max-w-[62ch] text-text-2">Each claim, the evidence for it, and a command to check it yourself. Checks marked live were recomputed when this page loaded.</p>
+    <main className="mx-auto grid max-w-[1100px] gap-[clamp(3rem,6vw,5rem)] p-[var(--pad)] pt-28">
+      <header>
+        <h1 className={H1}>Check it yourself</h1>
+        <p className="mt-4 max-w-[60ch] text-[clamp(16px,1.2vw,19px)] leading-[1.5]">
+          Every address and signature below is on-chain. Each claim has its evidence and a command you can run. Checks marked live were recomputed when this
+          page loaded.
+        </p>
+      </header>
 
-      <ol className="mt-10 grid grid-cols-1 gap-4">
-        {claims.map((c) => (
-          <li key={c.title} className="min-w-0 rounded-panel border border-line bg-surface p-5">
-            <div className="flex items-start gap-3">
-              {c.ok === null ? (
-                <CheckCircle size={22} className="mt-0.5 shrink-0 text-text-3" />
-              ) : c.ok ? (
-                <CheckCircle size={22} weight="fill" className="mt-0.5 shrink-0 text-accent" />
-              ) : (
-                <XCircle size={22} weight="fill" className="mt-0.5 shrink-0 text-danger" />
-              )}
-              <div className="min-w-0">
-                <h2 className="font-medium">
-                  {c.title}
-                  {c.ok !== null && <span className="ml-2 text-xs font-normal text-text-3">{c.ok ? "live check passed" : "live check failed"}</span>}
-                </h2>
-                <p className="mt-2 text-sm leading-relaxed text-text-2 [&_code]:num [&_code]:break-all [&_code]:text-text">{c.evidence}</p>
-                <pre className="num mt-3 overflow-x-auto rounded-control bg-bg px-3 py-2 text-xs text-text-2">{c.verify}</pre>
-              </div>
+      <ol className="grid gap-[var(--pad)]">
+        {claims.map((c, i) => (
+          <li key={c.title} className="panel min-w-0 p-[var(--pad)]">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="chip">0{i + 1}</span>
+              {c.ok !== null && <span className={`font-mono text-[11px] uppercase tracking-[0.2em] ${c.ok ? "" : "text-alarm"}`}>{c.ok ? "live check passed" : "live check failed"}</span>}
             </div>
+            <h2 className="wdth-110 mt-3 text-[clamp(1.2rem,1.7vw,1.7rem)] font-bold leading-tight tracking-[-0.03em]">{c.title}</h2>
+            <p className="mt-3 text-[15px] leading-[1.55] [&_code]:num [&_code]:break-all [&_code]:font-bold">{c.evidence}</p>
+            <pre className="num mt-4 overflow-x-auto overscroll-x-contain bg-tc px-3 py-2 text-[12px] text-fc">{c.verify}</pre>
           </li>
         ))}
       </ol>
 
-      <section className="mt-12">
-        <h2 className="text-xl font-semibold tracking-tight">Addresses</h2>
-        <dl className="num mt-4 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-[auto_1fr]">
+      <section>
+        <h2 className="chip">Addresses</h2>
+        <dl className="num mt-4 grid gap-x-8 gap-y-3 text-[13px] sm:grid-cols-[auto_1fr]">
           {[
             ["Vault contract", net.vault, L.account(net.vault)],
-            ["Keeper", state.keeper, L.account(state.keeper)],
-            ["Vault EVM address", addr, L.hlAddress(addr)],
+            ["Vault's MPC address (owns the Hyperliquid and Intents accounts)", addr, L.hlAddress(addr)],
+            ["Keeper account", state.keeper, L.account(state.keeper)],
             ["Intents verifier", state.config.verifier, L.account(state.config.verifier)],
             ["MPC signer", state.config.mpc, L.account(state.config.mpc)],
           ].map(([k, v, href]) => (
             <div key={k} className="contents">
-              <dt className="font-sans text-text-3">{k}</dt>
+              <dt className="font-sans">{k}</dt>
               <dd className="break-all">
-                <a href={href} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">{v}</a>
+                <a href={href} target="_blank" rel="noreferrer" className="underline underline-offset-2">{v} ↗</a>
               </dd>
             </div>
           ))}
         </dl>
       </section>
 
-      <section className="mt-12">
-        <h2 className="text-xl font-semibold tracking-tight">Latest MPC signatures</h2>
-        <p className="mt-1 text-sm text-text-3">The exact payload the contract built, and the digest MPC signed.</p>
-        <ul className="mt-4 grid gap-3">
+      <section>
+        <h2 className="chip">Latest signatures from NEAR&apos;s MPC network</h2>
+        <p className="mt-3 text-[14px]">The exact payload the contract built, and the digest MPC signed.</p>
+        <ul className="mt-4 grid gap-[var(--pad)]">
           {signed.slice(-4).reverse().map((s) => (
-            <li key={s.id} className="rounded-panel border border-line bg-surface p-4">
-              <p className="text-sm font-medium">{s.kind}</p>
-              <pre className="num mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-all text-xs text-text-2">{s.payload}</pre>
-              <p className="num mt-2 break-all text-xs text-text-3">digest {s.digest}</p>
+            <li key={s.id} className="border-t border-tc pt-3">
+              <details>
+                <summary className="cursor-pointer text-[15px]">{describeSigned(s, state.config.usdc_token_id).text}</summary>
+                <pre className="num mt-2 max-h-40 overflow-auto overscroll-contain whitespace-pre-wrap break-all text-[12px]">{s.payload}</pre>
+                <p className="num mt-2 break-all text-[12px]">digest {s.digest}</p>
+              </details>
             </li>
           ))}
         </ul>
       </section>
 
       {net.network === "testnet" && (
-        <p className="mt-12 text-sm text-text-3">
+        <p className="text-[13px] leading-[1.5]">
           Testnet stand-ins: <code className="num">{net.verifier}</code> mimics intents.near with real ERC-191 signature checks, and swaps are filled by a mock 1Click whose
           ed25519 key the testnet vault trusts. The MPC network and Hyperliquid testnet are real.
         </p>

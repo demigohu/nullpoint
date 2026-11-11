@@ -1,9 +1,9 @@
 "use client";
-// Inline-SVG line chart: one y-axis, 2px lines, crosshair + tooltip, direct end labels + legend,
-// and a table view (required: the light-mode NAV color sits under 3:1 contrast).
+// Inline-SVG line chart in the page duotone (DESIGN.md §1): series differ by stroke (solid vs
+// dotted), not color. One y-axis, crosshair, direct end labels, and a table view.
 import { useMemo, useRef, useState } from "react";
 
-export type Series = { key: string; label: string; color: string; points: { x: number; y: number }[] };
+export type Series = { key: string; label: string; dashed?: boolean; points: { x: number; y: number }[] };
 
 const W = 720, H = 280, PAD = { l: 60, r: 84, t: 12, b: 28 };
 
@@ -45,7 +45,7 @@ export function LineChart({
     return { xs: series[0]?.points.map((p) => p.x) ?? [], x, y, ticks };
   }, [series, baseline]);
 
-  if (!xs.length) return <p className="text-sm text-text-3">No data yet.</p>;
+  if (!xs.length) return <p className="text-sm">No data yet.</p>;
 
   const onMove = (e: React.PointerEvent) => {
     const r = svg.current!.getBoundingClientRect();
@@ -68,53 +68,53 @@ export function LineChart({
       >
         {ticks.map((t) => (
           <g key={t}>
-            <line x1={PAD.l} x2={W - PAD.r} y1={y(t)} y2={y(t)} stroke="var(--line)" strokeWidth={1} />
-            <text x={PAD.l - 8} y={y(t)} dy="0.32em" textAnchor="end" className="num" fontSize={11} fill="var(--text-3)">
+            <line x1={PAD.l} x2={W - PAD.r} y1={y(t)} y2={y(t)} stroke="var(--dim)" strokeWidth={1} />
+            <text x={PAD.l - 8} y={y(t)} dy="0.32em" textAnchor="end" className="num" fontSize={11} fill="var(--t)">
               {formatY(t)}
             </text>
           </g>
         ))}
         {[xs[0]!, xs[Math.floor(xs.length / 2)]!, xs.at(-1)!].map((v, i) => (
-          <text key={v} x={x(v)} y={H - 8} textAnchor={(["start", "middle", "end"] as const)[i]} fontSize={11} fill="var(--text-3)">
+          <text key={v} x={x(v)} y={H - 8} textAnchor={(["start", "middle", "end"] as const)[i]} fontSize={11} fill="var(--t)">
             {formatX(v)}
           </text>
         ))}
-        {baseline !== undefined && <line x1={PAD.l} x2={W - PAD.r} y1={y(baseline)} y2={y(baseline)} stroke="var(--text-3)" strokeDasharray="3 4" strokeWidth={1} />}
+        {baseline !== undefined && <line x1={PAD.l} x2={W - PAD.r} y1={y(baseline)} y2={y(baseline)} stroke="var(--dim)" strokeDasharray="3 4" strokeWidth={1} />}
         {series.map((s) => (
           <g key={s.key}>
-            <path d={s.points.map((p, i) => `${i ? "L" : "M"}${x(p.x).toFixed(1)},${y(p.y).toFixed(1)}`).join("")} fill="none" stroke={s.color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-            <text x={x(s.points.at(-1)!.x) + 8} y={y(s.points.at(-1)!.y)} dy="0.32em" fontSize={12} fill="var(--text-2)">
+            <path d={s.points.map((p, i) => `${i ? "L" : "M"}${x(p.x).toFixed(1)},${y(p.y).toFixed(1)}`).join("")} fill="none" stroke="var(--t)" strokeWidth={s.dashed ? 1.5 : 2.5} strokeDasharray={s.dashed ? "2 4" : undefined} strokeLinejoin="round" strokeLinecap="round" />
+            <text x={x(s.points.at(-1)!.x) + 8} y={y(s.points.at(-1)!.y)} dy="0.32em" fontSize={12} className="num" fill="var(--t)">
               {s.label}
             </text>
           </g>
         ))}
         {hover !== null && (
           <g pointerEvents="none">
-            <line x1={x(xs[hover]!)} x2={x(xs[hover]!)} y1={PAD.t} y2={H - PAD.b} stroke="var(--text-3)" strokeWidth={1} />
+            <line x1={x(xs[hover]!)} x2={x(xs[hover]!)} y1={PAD.t} y2={H - PAD.b} stroke="var(--t)" strokeWidth={1} />
             {series.map((s) => (
-              <circle key={s.key} cx={x(s.points[hover]!.x)} cy={y(s.points[hover]!.y)} r={4} fill={s.color} stroke="var(--surface)" strokeWidth={2} />
+              <rect key={s.key} x={x(s.points[hover]!.x) - 4} y={y(s.points[hover]!.y) - 4} width={8} height={8} fill="var(--t)" stroke="var(--f)" strokeWidth={2} />
             ))}
           </g>
         )}
       </svg>
-      <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-text-2">
+      <div className="num mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs">
         {series.map((s) => (
           <span key={s.key} className="flex items-center gap-1.5">
-            <span className="h-0.5 w-4 rounded-full" style={{ background: s.color }} />
+            <svg width="16" height="4" aria-hidden><line x1="0" x2="16" y1="2" y2="2" stroke="var(--t)" strokeWidth={s.dashed ? 1.5 : 2.5} strokeDasharray={s.dashed ? "2 4" : undefined} /></svg>
             {s.label}
-            {hover !== null && <span className="num text-text">{formatY(s.points[hover]!.y)}</span>}
+            {hover !== null && <span>{formatY(s.points[hover]!.y)}</span>}
           </span>
         ))}
-        {hover !== null && <span className="text-text-3">{formatX(xs[hover]!)}</span>}
-        <button onClick={() => setTable((t) => !t)} className="ml-auto text-text-3 underline-offset-2 hover:text-text hover:underline">
+        {hover !== null && <span>{formatX(xs[hover]!)}</span>}
+        <button onClick={() => setTable((t) => !t)} className="ml-auto underline underline-offset-2">
           {table ? "Hide table" : "View as table"}
         </button>
       </div>
-      <figcaption className="mt-1 text-xs text-text-3">{caption}</figcaption>
+      <figcaption className="mt-1 text-xs">{caption}</figcaption>
       {table && (
-        <div className="mt-3 max-h-56 overflow-auto rounded-control border border-line">
+        <div className="mt-3 max-h-56 overflow-auto overscroll-contain border border-t">
           <table className="num w-full text-xs">
-            <thead className="sticky top-0 bg-surface-2 text-text-2">
+            <thead className="sticky top-0 bg-t text-f">
               <tr>
                 <th className="px-3 py-1.5 text-left font-normal">Time</th>
                 {series.map((s) => (
@@ -124,8 +124,8 @@ export function LineChart({
             </thead>
             <tbody>
               {xs.map((v, i) => (
-                <tr key={v} className="odd:bg-surface">
-                  <td className="px-3 py-1 text-text-3">{new Date(v).toLocaleString()}</td>
+                <tr key={v}>
+                  <td className="px-3 py-1">{new Date(v).toLocaleString()}</td>
                   {series.map((s) => (
                     <td key={s.key} className="px-3 py-1 text-right">{formatY(s.points[i]!.y)}</td>
                   ))}

@@ -1,158 +1,142 @@
+import { paybackHours } from "@nullpoint/core";
+import { FieldCanvas } from "@/components/field/field-canvas";
 import { LineChart } from "@/components/line-chart";
+import { Term } from "@/components/term";
+import { describeDecision, describeSigned } from "@/lib/activity";
 import { links } from "@/lib/config";
 import { currentNet, fundingRadar, vaultOverview } from "@/lib/data";
-import { paybackHours } from "@nullpoint/core";
+import { MODES, modeOf } from "@/lib/modes";
 
-const usd = (raw: string | number) => `$${(Number(raw) / 1e6).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const ago = (ms: number) => {
   const s = Math.round((Date.now() - ms) / 1000);
   return s < 90 ? `${s}s ago` : s < 5400 ? `${Math.round(s / 60)}m ago` : s < 129600 ? `${Math.round(s / 3600)}h ago` : `${Math.round(s / 86400)}d ago`;
 };
-const short = (a: string) => (a.length > 16 ? `${a.slice(0, 8)}…${a.slice(-6)}` : a);
+const money = (v: number) => `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export default async function Dashboard() {
   const net = await currentNet();
-  const [ov, radar] = await Promise.all([vaultOverview(net).catch(() => null), fundingRadar("mainnet")]);
+  const [ov, radar] = await Promise.all([vaultOverview(net).catch(() => null), fundingRadar("mainnet").catch(() => [])]);
   if (!ov) {
     return (
-      <main className="mx-auto max-w-7xl px-4 pt-12 md:px-6">
-        <h1 className="text-3xl font-semibold tracking-tight">Dashboard</h1>
-        <p className="mt-4 text-text-2">The {net.network} vault isn&apos;t live yet. Switch to testnet in the top bar.</p>
+      <main className="p-[var(--pad)] pt-28">
+        <h1 className="wdth-118 text-[clamp(2.2rem,4.6vw,5.4rem)] font-extrabold leading-[0.9] tracking-[-0.045em]">What the vault is doing right now</h1>
+        <p className="mt-4">The {net.network} vault isn&apos;t live yet. Switch to testnet in the top bar.</p>
       </main>
     );
   }
-  const { state, decisions, signed, nav, hl, spot } = ov;
+  const { state, decisions, signed, nav, hl, spot, hedge } = ov;
   const L = links(net);
-  const active = state.positions[0]?.symbol ?? null;
-  const spotUsd = spot.reduce((s, x) => s + x.usd, 0);
-  const hlPos = hl?.assetPositions?.map((p: any) => p.position) ?? [];
+  const active = hedge.symbol;
   const activeRate = radar.find((r) => r.symbol === active)?.apr8h ?? 0;
-  const navAge = state.snapshot ? ago(state.snapshot.ms) : "never";
+  const tvl = Number(state.snapshot?.nav ?? 0) / 1e6;
+  const shorts: { coin: string; szi: string; entryPx: string; liquidationPx: string | null }[] = hl?.assetPositions?.map((p: { position: never }) => p.position) ?? [];
+  const feed = [...signed.map((s) => describeSigned(s, state.config.usdc_token_id)), ...decisions.slice(-20).map(describeDecision)].sort((a, b) => b.ms - a.ms).slice(0, 14);
+
+  const stats = [
+    ["Share price", `$${ov.sharePrice.toFixed(4)}`, `Recorded ${state.snapshot ? ago(state.snapshot.ms) : "never"}`],
+    ["Total deposits", money(tvl), `${(Number(state.total_shares) / 1e6).toLocaleString(undefined, { maximumFractionDigits: 2 })} shares`],
+    ["Funding now", active ? `${activeRate.toFixed(1)}%` : "0%", active ? `a year, on ${active} (8h average)` : "Parked in USDC"],
+    ["Hedge gap (Δ)", active ? `${hedge.delta >= 0 ? "+" : "−"}${Math.abs(hedge.delta).toFixed(4)}` : "0", "Coin held minus the short. Near zero means fully hedged."],
+  ] as const;
 
   return (
-    <main className="mx-auto max-w-7xl px-4 pt-12 md:px-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Dashboard</h1>
-          <p className="mt-1 text-sm text-text-3">
-            {net.network} · NAV posted {navAge} · {state.paused ? <span className="text-danger">vault paused</span> : "vault running"}
-          </p>
-        </div>
-        <a href={L.hlAddress(state.config.vault_address)} target="_blank" rel="noreferrer" className="text-sm text-text-2 underline-offset-2 hover:text-text hover:underline">
-          Hyperliquid account of the vault
-        </a>
-      </div>
+    <main className="grid gap-[var(--pad)] p-[var(--pad)] pt-28">
+      <header className="grid gap-4 md:grid-cols-12 md:items-end">
+        <h1 className="wdth-118 text-[clamp(2.2rem,4.6vw,5.4rem)] font-extrabold leading-[0.9] tracking-[-0.045em] md:col-span-8">What the vault is doing right now</h1>
+        <p className="font-mono text-[12px] leading-[1.6] md:col-span-4 md:text-right">
+          {net.network} · {state.paused ? <span className="bg-alarm px-1 text-fc">vault paused</span> : "running"} ·{" "}
+          {active ? `hedging ${active}` : "parked in USDC"}
+          <br />
+          <a href={L.hlAddress(state.config.vault_address)} target="_blank" rel="noreferrer" className="underline underline-offset-2">The vault&apos;s Hyperliquid account ↗</a>
+        </p>
+      </header>
 
-      <section className="mt-8 grid gap-px overflow-hidden rounded-panel border border-line bg-line sm:grid-cols-2 lg:grid-cols-4">
-        <Tile label="NAV" value={state.snapshot ? usd(state.snapshot.nav) : "-"} />
-        <Tile label="Share price" value={`$${ov.sharePrice.toFixed(4)}`} />
-        <Tile label="Spot held (NEAR Intents)" value={`$${spotUsd.toFixed(2)}`} sub={spot.filter((s) => s.qty).map((s) => `${s.qty.toPrecision(4)} ${s.symbol}`).join(", ") || "none"} />
-        <Tile label="Hyperliquid account" value={usd(state.account_value)} sub={hlPos.map((p: any) => `short ${Math.abs(Number(p.szi))} ${p.coin} @ ${Number(p.entryPx).toPrecision(5)}, liq ${p.liquidationPx ? Number(p.liquidationPx).toPrecision(5) : "none"}`).join("; ") || "no position"} />
+      <section className="grid gap-[var(--pad)] sm:grid-cols-2 lg:grid-cols-4">
+        {stats.map(([label, value, sub]) => (
+          <div key={label} className="border-t border-tc pt-3">
+            <p className="chip">{label}</p>
+            <p className="num mt-3 text-[clamp(2.2rem,4vw,4rem)] font-bold leading-none tracking-[-0.04em]">{value}</p>
+            <p className="mt-2 text-[13px] leading-[1.4]">{sub}</p>
+          </div>
+        ))}
       </section>
 
-      <section className="mt-6 grid gap-6 lg:grid-cols-[1.5fr_1fr]">
-        <div className="rounded-panel border border-line bg-surface p-5">
-          <h2 className="font-medium">NAV per share</h2>
+      <section className="grid gap-[var(--pad)] lg:grid-cols-12">
+        <div className="panel p-[var(--pad)] lg:col-span-8">
+          <h2 className="wdth-110 text-[clamp(1.3rem,1.8vw,1.8rem)] font-bold tracking-[-0.03em]">
+            <Term k="share price">Share price</Term> over time
+          </h2>
           <div className="mt-4">
             {nav.length > 1 ? (
               <LineChart
-                series={[{ key: "share", label: "Share", color: "var(--series-nav)", points: nav.map((p) => ({ x: p.ms, y: Number(p.nav) / Number(p.total_shares) })) }]}
+                series={[{ key: "share", label: "Share", points: nav.map((p) => ({ x: p.ms, y: Number(p.nav) / Number(p.total_shares) })) }]}
                 yFormat="usd3"
                 xFormat="datetime"
-                caption="Recorded on-chain by the vault at most every 10 minutes."
+                caption="Recorded on-chain every 10 minutes."
               />
             ) : (
-              <p className="py-16 text-center text-sm text-text-3">One NAV point so far. The vault records one at most every 10 minutes while the keeper runs.</p>
+              <p className="py-16 text-center text-[14px]">One point so far. The vault records the share price every 10 minutes while the keeper runs.</p>
             )}
           </div>
         </div>
 
-        <div className="rounded-panel border border-line bg-surface p-5">
-          <h2 className="font-medium">Funding radar</h2>
-          <p className="text-xs text-text-3">Hyperliquid mainnet, annualised. Shorts earn positive funding.</p>
-          <table className="num mt-4 w-full text-sm">
-            <thead className="text-xs text-text-3">
-              <tr>
-                <th className="py-1 text-left font-normal">Asset</th>
-                <th className="py-1 text-right font-normal">Now</th>
-                <th className="py-1 text-right font-normal">8h avg</th>
-                <th className="py-1 text-right font-normal">Payback</th>
-              </tr>
-            </thead>
-            <tbody>
+        <div className="grid gap-[var(--pad)] lg:col-span-4">
+          <div className="panel p-[var(--pad)]">
+            <h2 className="wdth-110 text-[clamp(1.3rem,1.8vw,1.8rem)] font-bold tracking-[-0.03em]">
+              <Term k="funding">Funding</Term> across the three coins
+            </h2>
+            <p className="mt-1 text-[13px]">Hyperliquid mainnet, a year. The short earns it when positive.</p>
+            <ul className="mt-4 grid grid-cols-3 gap-2">
               {radar.map((r) => {
+                const m = modeOf(r.symbol);
                 const pb = active && r.symbol !== active ? paybackHours(40, r.apr8h - activeRate) : null;
                 return (
-                  <tr key={r.symbol} className="border-t border-line">
-                    <td className="py-2">
-                      {r.symbol}
-                      {r.symbol === active && <span className="ml-2 rounded-full bg-accent-soft px-2 py-0.5 text-xs text-accent">active</span>}
-                    </td>
-                    <td className="py-2 text-right">{r.aprNow.toFixed(1)}%</td>
-                    <td className="py-2 text-right">{r.apr8h.toFixed(1)}%</td>
-                    <td className="py-2 text-right text-text-2">{pb === null ? "-" : Number.isFinite(pb) ? `${Math.round(pb)}h` : "never"}</td>
-                  </tr>
+                  <li key={r.symbol} style={{ "--t": MODES[m].t, "--f": MODES[m].f } as React.CSSProperties} className="bg-fc text-tc">
+                    <div className="relative aspect-square border border-tc">
+                      <FieldCanvas mode={m} cell={14} speed={0.35} />
+                    </div>
+                    <div className="p-2 font-mono text-[12px] leading-[1.4]">
+                      <p className="font-bold">{r.symbol}{r.symbol === active && " · held"}</p>
+                      <p>{r.apr8h.toFixed(1)}%</p>
+                      <p>{pb === null ? "" : Number.isFinite(pb) ? `payback ${Math.round(pb)}h` : "never pays back"}</p>
+                    </div>
+                  </li>
                 );
               })}
-            </tbody>
-          </table>
-          <p className="mt-3 text-xs text-text-3">Payback: hours of extra funding to recover a 40 bps rotation. Rotations need ≤ 168h.</p>
+            </ul>
+            <p className="mt-3 text-[12px] leading-[1.4]">Payback: hours of extra funding needed to recover a switch (0.4%). The limits allow 168h at most.</p>
+          </div>
+
+          <div className="panel p-[var(--pad)]">
+            <h2 className="chip">The two legs</h2>
+            <dl className="num mt-3 grid gap-2 text-[13px]">
+              <div className="flex justify-between gap-3"><dt>Long (NEAR Intents)</dt><dd>{spot.filter((s) => s.qty).map((s) => `${s.qty.toPrecision(4)} ${s.symbol}`).join(", ") || "none"}</dd></div>
+              {shorts.map((p) => (
+                <div key={p.coin} className="flex justify-between gap-3"><dt>Short (Hyperliquid)</dt><dd>{p.szi} {p.coin} @ {Number(p.entryPx).toPrecision(5)}</dd></div>
+              ))}
+              <div className="flex justify-between gap-3"><dt>Hyperliquid account</dt><dd>{money(Number(state.account_value) / 1e6)}</dd></div>
+            </dl>
+          </div>
         </div>
       </section>
 
-      <section className="mt-6 grid gap-6 lg:grid-cols-[1.5fr_1fr]">
-        <div className="rounded-panel border border-line bg-surface p-5">
-          <h2 className="font-medium">Strategist decisions</h2>
-          <p className="text-xs text-text-3">Recorded on-chain with the NEAR AI Cloud chat id and the TEE address that signed the answer.</p>
-          {decisions.length === 0 ? (
-            <p className="mt-6 text-sm text-text-3">No decisions yet.</p>
-          ) : (
-            <ul className="mt-4 grid gap-3">
-              {decisions.slice(-12).reverse().map((d) => (
-                <li key={d.id} className="rounded-control bg-surface-2 px-4 py-3 text-sm">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium">{d.action}{d.target ? ` ${d.target}` : ""}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-xs ${d.accepted ? "bg-accent-soft text-accent" : "bg-surface text-danger"}`}>{d.accepted ? "accepted" : "rejected"}</span>
-                    <span className="text-xs text-text-3">{d.source === "llm" ? "LLM" : "rule"} · {ago(d.ms)}</span>
-                  </div>
-                  <p className="mt-1 text-text-2">{d.note}</p>
-                  {d.chat_id && <p className="num mt-1 text-xs text-text-3">{short(d.chat_id)} signed by {short(d.signing_address)}</p>}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        <div className="rounded-panel border border-line bg-surface p-5">
-          <h2 className="font-medium">Signed by MPC</h2>
-          <p className="text-xs text-text-3">Everything the vault asked NEAR&apos;s MPC network to sign.</p>
-          <ul className="mt-4 grid gap-2 text-sm">
-            {signed.slice().reverse().map((s) => (
-              <li key={s.id} className="flex items-baseline justify-between gap-3 border-t border-line pt-2">
-                <span>{KIND[s.kind] ?? s.kind}</span>
-                <span className="num text-xs text-text-3">{s.signature && s.signature !== "error" ? "signed" : "pending"} · {ago(s.ms)}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
+      <section className="panel p-[var(--pad)]">
+        <h2 className="wdth-110 text-[clamp(1.3rem,1.8vw,1.8rem)] font-bold tracking-[-0.03em]">What happened, in order</h2>
+        <p className="mt-1 text-[13px]">
+          Every <Term k="MPC signature" /> the vault requested and every strategist decision, newest first.
+        </p>
+        <ol className="mt-4">
+          {feed.map((a, i) => (
+            <li key={i} className="grid gap-1 border-t border-tc py-3 md:grid-cols-12">
+              <span className="font-mono text-[12px] md:col-span-2">{ago(a.ms)}</span>
+              <div className="md:col-span-10">
+                <p className={`text-[15px] leading-[1.45] ${a.ok ? "" : "text-alarm"}`}>{a.text}</p>
+                <p className="num mt-1 break-all text-[11px]">{a.tech}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
       </section>
     </main>
-  );
-}
-
-const KIND: Record<string, string> = {
-  intent_transfer: "Swap / margin via 1Click",
-  intent_ft_withdraw: "User withdrawal",
-  hl_approve_agent: "Approve Hyperliquid agent",
-  hl_send_asset: "Pull margin from Hyperliquid",
-};
-
-function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div className="bg-surface p-5">
-      <p className="text-sm text-text-3">{label}</p>
-      <p className="num mt-1 text-2xl">{value}</p>
-      {sub && <p className="num mt-1 truncate text-xs text-text-3" title={sub}>{sub}</p>}
-    </div>
   );
 }
