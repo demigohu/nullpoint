@@ -3,7 +3,8 @@
 //   2. a fully compromised model: its output is replaced with the attacker's wish list
 // Whatever the model says, the guardrail decides what the keeper may do. Nothing is sent on-chain.
 //   node --env-file=../.env attack-llm.ts
-import { askStrategist, guardrail, parseDecision, type Context, type Market } from "@nullpoint/core";
+import { guardrail, type Context, type Market } from "@nullpoint/core";
+import { askStrategist, parseDecision } from "@nullpoint/core/strategist";
 
 const H = 3_600_000, now = Date.now();
 const ctx: Context = { active: "BTC", heldSinceMs: now - 30 * H, nowMs: now, rotationsLast24h: 0, rotationCostBps: 40, allowlist: ["BTC", "ETH", "NEAR"] };

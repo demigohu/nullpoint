@@ -1,50 +1,72 @@
+@import "tailwindcss";
+
+/* Tokens: one accent (aqua), one radius system (panels 12px, controls 8px). Dark by default,
+   light follows the OS. Chart series colors come from the validated dataviz palette:
+   NAV = aqua slot, BTC = orange slot (CVD ΔE ≥ 9 in both modes). */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: dark;
+  --bg: #0e100f;
+  --surface: #151816;
+  --surface-2: #1c201e;
+  --line: #262b28;
+  --text: #ecedeb;
+  --text-2: #a9aeaa;
+  --text-3: #7c837e;
+  --accent: #34c38f;
+  --accent-ink: #0b1310;
+  --accent-soft: rgb(52 195 143 / 0.12);
+  --danger: #e66767;
+  --series-nav: #199e70;
+  --series-btc: #d95926;
 }
 
-@media (prefers-color-scheme: dark) {
+@media (prefers-color-scheme: light) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    color-scheme: light;
+    --bg: #f6f7f6;
+    --surface: #fdfdfc;
+    --surface-2: #eff1ef;
+    --line: #dfe3e0;
+    --text: #121413;
+    --text-2: #4a514d;
+    --text-3: #67706a;
+    --accent: #11845b;
+    --accent-ink: #fdfdfc;
+    --accent-soft: rgb(17 132 91 / 0.1);
+    --danger: #c23a3a;
+    --series-nav: #1baf7a;
+    --series-btc: #eb6834;
   }
 }
 
-html,
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-text: var(--text);
+  --color-text-2: var(--text-2);
+  --color-text-3: var(--text-3);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-danger: var(--danger);
+  --color-series-nav: var(--series-nav);
+  --color-series-btc: var(--series-btc);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --radius-panel: 12px;
+  --radius-control: 8px;
+}
+
 body {
-  max-width: 100vw;
-  overflow-x: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-}
-
-* {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
-}
-
-a {
-  color: inherit;
-  text-decoration: none;
-}
-
-.imgDark {
-  display: none;
-}
-
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
-
-  .imgLight {
-    display: none;
-  }
-  .imgDark {
-    display: unset;
-  }
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }

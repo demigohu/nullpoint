@@ -11,9 +11,10 @@ import { readFileSync } from "node:fs";
 import { ExchangeClient, HttpTransport, InfoClient } from "@nktkas/hyperliquid";
 import { privateKeyToAccount } from "viem/accounts";
 import {
-  ASSETS, LIMITS, askStrategist, assetBySymbol, guardrail, mpcToIntentsSignature, ruleDecision,
+  ASSETS, LIMITS, assetBySymbol, guardrail, mpcToIntentsSignature, ruleDecision,
   signedMessage as msg, view, type Context, type Decision, type Market,
 } from "@nullpoint/core";
+import { askStrategist } from "@nullpoint/core/strategist";
 import { mustCall } from "@nullpoint/core/node";
 import * as oneclick from "./mock1click.ts";
 

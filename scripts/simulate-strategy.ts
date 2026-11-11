@@ -2,7 +2,8 @@
 //   hold BTC  vs  rule policy  vs  LLM strategist (optional, one call per decision step)
 // Yield = funding earned on the active asset's short, minus 40 bps per rotation. Same guardrail for all.
 //   node simulate-strategy.ts [--days 21] [--llm --every 24]     (--llm needs NEARAI_API_KEY)
-import { askStrategist, guardrail, ruleDecision, hlInfo, type Context, type Decision, type Market } from "@nullpoint/core";
+import { guardrail, ruleDecision, hlInfo, type Context, type Decision, type Market } from "@nullpoint/core";
+import { askStrategist } from "@nullpoint/core/strategist";
 
 const arg = (k: string, d: number) => Number(process.argv[process.argv.indexOf(k) + 1] ?? d) || d;
 const DAYS = arg("--days", 21), EVERY_H = arg("--every", 24), COST_BPS = 40;
