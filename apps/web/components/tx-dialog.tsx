@@ -96,13 +96,13 @@ export function TxDialog({ net, spec, onClose }: { net: NetConfig; spec: TxSpec 
           </header>
 
           {phase.k === "simulating" && (
-            <p className="font-mono text-[13px]"><span className="blink">■</span> Reading the chain and running the contract&apos;s checks on your numbers…</p>
+            <p className="font-mono text-[13px]"><span className="blink">■</span> Checking your numbers against the contract, the same way it will…</p>
           )}
 
           {sim && (
             <>
               <section>
-                <h3 className="font-mono text-[11px] uppercase tracking-[0.2em]">Simulated against the chain just now</h3>
+                <h3 className="font-mono text-[11px] uppercase tracking-[0.2em]">Checked against the chain just now</h3>
                 <ul className="mt-2 grid gap-1.5">
                   {sim.checks.map((c) => (
                     <li key={c.label} className={`flex gap-2 text-[14px] leading-[1.4] ${c.ok ? "" : "text-alarm"}`}>
@@ -122,7 +122,7 @@ export function TxDialog({ net, spec, onClose }: { net: NetConfig; spec: TxSpec 
               </section>
 
               <section>
-                <h3 className="font-mono text-[11px] uppercase tracking-[0.2em]">What you sign: 1 transaction</h3>
+                <h3 className="font-mono text-[11px] uppercase tracking-[0.2em]">What you sign (1 transaction)</h3>
                 <dl className="mt-2 grid gap-x-4 gap-y-1 text-[13px] sm:grid-cols-[auto_1fr]">
                   {spec.signs.map(([k, v]) => (
                     <div key={k} className="contents">
@@ -143,7 +143,7 @@ export function TxDialog({ net, spec, onClose }: { net: NetConfig; spec: TxSpec 
                 </button>
                 {phase.k === "review" && <button onClick={close} className="btn btn-ghost" data-label="Cancel">Cancel</button>}
               </div>
-              {blocked && <p className="text-[13px] text-alarm">The contract would reject this, so it can&apos;t be sent. Fix the failed check above.</p>}
+              {blocked && <p className="text-[13px] text-alarm">The contract would refuse this, so there&apos;s nothing to sign yet. Fix the check marked above.</p>}
             </>
           )}
 

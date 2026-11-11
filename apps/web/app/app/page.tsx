@@ -14,13 +14,13 @@ export default async function AppPage() {
           <div className="panel p-[var(--pad)]">
             <h1 className="wdth-118 text-[clamp(2rem,3.6vw,4rem)] font-extrabold leading-[0.9] tracking-[-0.045em]">Your vault</h1>
             <p className="mt-3 text-[15px] leading-[1.5]">
-              Deposit USDC for <Term k="share">shares</Term>. The vault <Term k="hedge">hedges</Term> it and collects <Term k="funding">funding</Term>, so the{" "}
-              <Term k="share price" /> rises while price moves cancel.
+              Deposit USDC and you get <Term k="share">shares</Term>. The vault earns <Term k="funding">funding</Term> and adds it to the{" "}
+              <Term k="share price" />, so your shares grow slowly while coin prices swing.
             </p>
             {ov && (
               <p className="num mt-3 text-[12px]">
-                Field: long {(ov.hedge.longShare * 100).toFixed(1)}%, short {(100 - ov.hedge.longShare * 100).toFixed(1)}%
-                {ov.hedge.symbol ? ` · hedging ${ov.hedge.symbol}` : " · parked in USDC"}
+                This grid is the vault right now: {(ov.hedge.longShare * 100).toFixed(1)}% long, {(100 - ov.hedge.longShare * 100).toFixed(1)}% short
+                {ov.hedge.symbol ? `, hedging ${ov.hedge.symbol}.` : ", waiting in USDC."}
               </p>
             )}
           </div>

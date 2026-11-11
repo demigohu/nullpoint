@@ -26,7 +26,7 @@ export default async function Proof() {
 
   const claims: { title: string; ok: boolean | null; evidence: React.ReactNode; verify: string }[] = [
     {
-      title: "The vault contract controls one EVM address: its NEAR Intents account and its Hyperliquid master.",
+      title: "The contract owns one Ethereum-style address, and that address owns both the Intents account and the Hyperliquid account.",
       ok: derived === addr,
       evidence: (
         <>
@@ -37,55 +37,57 @@ export default async function Proof() {
       verify: `near contract call-function as-read-only ${state.config.mpc} derived_public_key json-args '{"path":"${state.config.mpc_path}","predecessor":"${net.vault}","domain_id":0}' network-config ${near} now`,
     },
     {
-      title: "The keeper's Hyperliquid key can trade for the vault but can't withdraw or send funds.",
+      title: "The agent's Hyperliquid key can trade for the vault. It can't withdraw or send money anywhere.",
       ok: agents.length > 0,
       evidence: (
         <>
-          Approved agents on the vault account right now: {agents.map((a) => <code key={a.address}>{a.name} {a.address}</code>)}. The approval was signed by MPC
-          on the contract&apos;s request. The attack script has the agent try withdraw3, usdSend and agentSendAsset to an outside address; Hyperliquid rejects all three.
+          Agents approved on the vault&apos;s account right now: {agents.map((a) => <code key={a.address}>{a.name} {a.address}</code>)}. The contract asked NEAR&apos;s
+          signers to sign that approval. The attack script then uses the agent key to try withdraw3, usdSend and agentSendAsset to an outside address, and Hyperliquid
+          refuses all three.
         </>
       ),
       verify: "cd scripts && node attack.ts",
     },
     {
-      title: "Swaps and margin transfers can only pay the vault.",
+      title: "Swaps and collateral moves can only ever pay the vault.",
       ok: null,
       evidence: (
         <>
-          <code>sign_quote</code> verifies 1Click&apos;s ed25519 signature on the quote, requires recipient and refund address to be the vault, checks the price against
-          the stored oracle price, rejects reused quotes, and only then builds the intent and asks MPC to sign it. Unit tests run on real mainnet 1Click quotes.
+          Before it asks NEAR&apos;s signers for anything, <code>sign_quote</code> checks 1Click&apos;s ed25519 signature on the quote, requires the vault as both
+          recipient and refund address, compares the price with its stored oracle price, and refuses a quote it has seen before. Only then does it build the intent
+          itself. The unit tests run on real mainnet 1Click quotes.
         </>
       ),
       verify: "cd contracts && cargo test -p vault",
     },
     {
-      title: "NAV is computed by the contract, not reported by the keeper.",
+      title: "The contract prices the vault itself. The agent can't make the number up.",
       ok: state.snapshot !== null,
       evidence: (
         <>
-          Spot and idle USDC are read from the Intents verifier by the contract itself and priced with signed 1Click quotes. The keeper only reports the short, and the
-          contract rejects it if it isn&apos;t hedged or the account value drifts from its own margin records (it pauses the vault instead).
+          The contract reads the coins and idle USDC straight from the Intents contract and prices them with signed 1Click quotes. The agent only reports the
+          Hyperliquid side. If that report is unhedged, or more than 1% away from what the contract expects, the contract rejects it and pauses the vault.
         </>
       ),
       verify: `near contract call-function as-read-only ${net.vault} get_state json-args '{}' network-config ${near} now`,
     },
     {
-      title: "Every strategist answer is signed inside a TEE and recorded on-chain.",
+      title: "Every AI decision is signed inside an enclave and stored on-chain.",
       ok: llm ? true : null,
       evidence: llm ? (
         <>
-          Latest LLM decision: <code>{llm.action}{llm.target ? ` ${llm.target}` : ""}</code>, chat <code>{llm.chat_id}</code>, signed by <code>{llm.signing_address}</code>.
-          The keeper checks that this address appears in the model&apos;s NEAR AI Cloud attestation report before acting.
+          Latest AI decision: <code>{llm.action}{llm.target ? ` ${llm.target}` : ""}</code>, chat <code>{llm.chat_id}</code>, signed by <code>{llm.signing_address}</code>.
+          Before acting on it, the agent checks that this address is in the model&apos;s NEAR AI Cloud attestation report.
         </>
       ) : (
-        <>No LLM decision recorded yet on this network.</>
+        <>No AI decision recorded on this network yet.</>
       ),
       verify: "cd scripts && node --env-file=../.env attack-llm.ts",
     },
     {
-      title: "Anyone can complete a signed withdrawal.",
+      title: "Anyone can finish a signed withdrawal, and it can only pay the person who asked.",
       ok: null,
-      evidence: <>The contract&apos;s <code>execute_withdraw</code> has no caller check: once MPC has signed a payout, the user can submit it themselves.</>,
+      evidence: <>The contract&apos;s <code>execute_withdraw</code> doesn&apos;t care who calls it. Once NEAR&apos;s signers have signed a payout, the user can submit it without waiting for the agent.</>,
       verify: "cd scripts && node e2e-testnet.ts",
     },
   ];
@@ -95,8 +97,8 @@ export default async function Proof() {
       <header>
         <h1 className={H1}>Check it yourself</h1>
         <p className="mt-4 max-w-[60ch] text-[clamp(16px,1.2vw,19px)] leading-[1.5]">
-          Every address and signature below is on-chain. Each claim has its evidence and a command you can run. Checks marked live were recomputed when this
-          page loaded.
+          Six claims about who can move the money, each with its evidence and a command you can run yourself. The ones marked live were checked again when
+          this page loaded.
         </p>
       </header>
 
@@ -120,7 +122,7 @@ export default async function Proof() {
           {[
             ["Vault contract", net.vault, L.account(net.vault)],
             ["Vault's MPC address (owns the Hyperliquid and Intents accounts)", addr, L.hlAddress(addr)],
-            ["Keeper account", state.keeper, L.account(state.keeper)],
+            ["Agent account (NEAR)", state.keeper, L.account(state.keeper)],
             ["Intents verifier", state.config.verifier, L.account(state.config.verifier)],
             ["MPC signer", state.config.mpc, L.account(state.config.mpc)],
           ].map(([k, v, href]) => (

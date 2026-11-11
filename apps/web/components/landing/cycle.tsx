@@ -12,10 +12,10 @@ import { reducedMotion, scramble } from "@/lib/scramble";
 gsap.registerPlugin(ScrollTrigger);
 
 const STEPS = [
-  ["Sweep", "New deposits move from the vault contract into its own NEAR Intents account."],
-  ["Hedge", "The keeper opens a short on Hyperliquid, then buys the same amount of the coin through NEAR Intents. The short goes first, so the vault never holds a coin without its hedge."],
-  ["Report", "The keeper reports both legs. The contract prices them with signed quotes and rejects any report that drifts more than 1% from what it expects."],
-  ["Rotate", "When another coin pays clearly more, a model running in a secure enclave suggests a switch. Hard limits decide: 2 switches a day at most, 6 hours minimum per coin, and the extra fee must repay the switch cost within 7 days."],
+  ["Sweep", "Picks up new deposits and moves them into the vault's own NEAR Intents account."],
+  ["Hedge", "Opens the short on Hyperliquid first, then buys the same amount of the coin through NEAR Intents. Short first means the vault never holds an unhedged coin, not even for a minute."],
+  ["Report", "Tells the contract what both sides are worth. The contract prices them itself and throws out any report that's off by more than 1%."],
+  ["Rotate", "An AI model running in a sealed enclave checks which coin pays best. It can switch at most twice a day, has to stay 6 hours on a coin, and only moves if the extra yield pays back the switching cost within a week."],
 ] as const;
 
 // What the square field does on each step.
@@ -72,7 +72,7 @@ export function Cycle({ liveMode }: { liveMode: Mode }) {
     <section ref={root} className="relative grid min-h-[100dvh] content-center gap-[var(--pad)] p-[var(--pad)] pt-28 md:grid-cols-12">
       <div className="md:col-span-6">
         <h2 className="wdth-118 max-w-[16ch] text-[clamp(2.2rem,4.6vw,5.4rem)] font-extrabold leading-[0.9] tracking-[-0.045em]">
-          A keeper runs the same four steps, over and over.
+          An AI agent runs the vault. Four jobs, once a minute.
         </h2>
         <ol className="mt-8">
           {STEPS.map(([name, body], i) => (

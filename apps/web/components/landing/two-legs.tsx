@@ -49,24 +49,24 @@ export function TwoLegs({ bt, longShare }: { bt: Point[]; longShare: number }) {
   return (
     <section ref={root} className="relative min-h-[100dvh] overflow-hidden">
       <FieldCanvas longShare={longShare} speed={0.35} cell={64} onReady={(f) => (field.current = f)} />
-      <div className="relative grid min-h-[100dvh] content-center gap-[var(--pad)] p-[var(--pad)] pt-28 md:grid-cols-12">
-        <div className="panel p-[var(--pad)] md:col-span-5 md:self-start">
-          <h2 className="wdth-118 text-[clamp(2.2rem,4.6vw,5.4rem)] font-extrabold leading-[0.9] tracking-[-0.045em]">
-            Price goes up, price goes down. Your share stays put.
+      <div className="relative grid min-h-[100dvh] content-center items-stretch gap-[var(--pad)] p-[var(--pad)] pt-28 md:grid-cols-12">
+        <div className="panel p-[var(--pad)] md:col-span-5">
+          <h2 className="wdth-118 text-[clamp(2.2rem,4.2vw,5rem)] font-extrabold leading-[0.9] tracking-[-0.045em]">
+            BTC {btcMove < 0 ? "fell" : "rose"} {Math.abs(btcMove).toFixed(1)}% in 30 days. A hedged vault {hedgedMove < 0 ? "lost" : "made"} {Math.abs(hedgedMove).toFixed(2)}%.
           </h2>
           <p className="mt-5 max-w-[52ch] text-[clamp(16px,1.15vw,18px)] leading-[1.5]">
-            For every $1 of BTC the vault holds, it also holds a $1 bet that BTC falls: a short on Hyperliquid. When BTC drops, the coin loses what the
-            short gains. When it rises, the reverse.
+            Every dollar you deposit is split in two. About 67¢ buys BTC. The other 33¢ goes to Hyperliquid as collateral for a short of the same size,
+            which is a bet that BTC falls. If BTC drops 10%, the BTC loses 6.7¢ and the short makes 6.7¢. Your dollar is still a dollar.
           </p>
           <aside className="mt-6 border-t border-tc pt-4">
-            <p className="chip">Where the fee comes from</p>
+            <p className="chip">Where the yield comes from</p>
             <p className="mt-3 max-w-[52ch] text-[15px] leading-[1.5]">
-              On Hyperliquid more traders bet on prices rising than falling. To keep the two sides balanced, the longs pay the shorts every hour. That
-              payment is called funding. NullPoint is always on the short side, so it collects it.
+              On Hyperliquid, more traders bet on prices rising than falling, many of them with borrowed money. To keep that market close to the real
+              price, the crowded side pays the other side every hour. That payment is called funding. NullPoint sits on the side that usually gets paid.
             </p>
           </aside>
         </div>
-        <div className="legs-chart panel p-[var(--pad)] md:col-span-7 md:self-end">
+        <div className="legs-chart panel flex flex-col justify-center p-[var(--pad)] md:col-span-7">
           <div className="num mb-3 flex flex-wrap gap-x-6 gap-y-1 text-[clamp(1.4rem,2.6vw,2.8rem)] font-bold leading-none tracking-[-0.04em]">
             <span>BTC <span ref={btcEl}>{pct(btcMove)}</span></span>
             <span>NullPoint <span ref={vaultEl}>{pct(hedgedMove, 2)}</span></span>
@@ -77,7 +77,7 @@ export function TwoLegs({ bt, longShare }: { bt: Point[]; longShare: number }) {
               { key: "btc", label: "BTC", dashed: true, points: bt.map((p) => ({ x: p.t, y: p.btc })) },
               { key: "hedged", label: "NullPoint", points: bt.map((p) => ({ x: p.t, y: p.hedged })) },
             ]}
-            caption={`Last 30 days on real Hyperliquid prices and funding. BTC ${pct(btcMove)}. NullPoint ${pct(hedgedMove, 2)}. Simulated with the vault's split, fees not included.`}
+            caption="Simulated on the last 30 days of real Hyperliquid prices and funding, with the vault's two-thirds / one-third split. Fees not included."
           />
         </div>
       </div>

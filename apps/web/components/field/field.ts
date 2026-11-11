@@ -152,9 +152,10 @@ export class Field {
         const k = j * cols + i;
         if (this.drawn[k] === state) continue;
         this.drawn[k] = state;
+        // Exact cell box: overlapping a neighbour would leave its edge stale when only this cell redraws.
         const x = Math.floor(i * size), y = Math.floor(j * size);
         ctx.fillStyle = long ? style.t : style.f;
-        ctx.fillRect(x, y, Math.ceil(size) + 1, Math.ceil(size) + 1);
+        ctx.fillRect(x, y, Math.floor((i + 1) * size) - x, Math.floor((j + 1) * size) - y);
         if (this.bordersOnly && !edge) continue;
         ctx.fillStyle = long ? style.f : style.t;
         ctx.fillText(this.glyphs[long ? 0 : 1], x + size / 2, y + size / 2 + size * 0.03);

@@ -4,7 +4,7 @@ import { MODES } from "@/lib/modes";
 
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
-export const alt = "NullPoint: deposit USDC, collect the fee leveraged traders pay every hour.";
+export const alt = "NullPoint: earn the fee traders pay to bet on crypto going up.";
 
 const CELL = 30;
 
@@ -27,7 +27,7 @@ export default function OpengraphImage() {
             <span style={{ fontWeight: 400 }}>null</span>
             <span style={{ fontWeight: 800 }}>Point</span>
           </div>
-          <div style={{ fontSize: 40, marginTop: 20, lineHeight: 1.15 }}>Deposit USDC. Collect the fee leveraged traders pay every hour.</div>
+          <div style={{ fontSize: 40, marginTop: 20, lineHeight: 1.15 }}>Earn from crypto without betting on it.</div>
         </div>
       </div>
     ),

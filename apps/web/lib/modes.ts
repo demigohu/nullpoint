@@ -37,6 +37,14 @@ export function setMode(mode: Mode | null) {
   } catch {}
   root.dataset.mode = next;
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", MODES[next].f);
+  const icon = `data:image/svg+xml,${encodeURIComponent(iconSvg(next))}`;
+  document.querySelectorAll<HTMLLinkElement>('link[rel="icon"]').forEach((l) => (l.href = icon));
+}
+
+/** The favicon in a mode's colors: two cells, long (+) and short (−). Same drawing as app/icon.svg. */
+export function iconSvg(m: Mode) {
+  const { t, f } = MODES[m];
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" fill="${f}"/><rect x="1" y="1" width="15" height="30" fill="${t}"/><rect x="5" y="14.5" width="7" height="3" fill="${f}"/><rect x="7" y="12.5" width="3" height="7" fill="${f}"/><rect x="20" y="14.5" width="8" height="3" fill="${t}"/><rect x="0.5" y="0.5" width="31" height="31" fill="none" stroke="${t}"/></svg>`;
 }
 
 export const storedPreview = (): Mode | null => {

@@ -330,10 +330,13 @@ All components are sharp-cornered (radius 0) and use only `--t`, `--f`, Dim (non
 ### `/` Landing (story in chapters, each a different layout)
 1. **Loader** (§6.1).
 2. **Hero** (pinned):
-   - A full-bleed field in the live mode with the giant two-line wordmark.
-   - An inverted panel holds the headline, sub and CTAs from COPY.md.
-   - The live numbers (active coin, funding, share price) sit in the HUD delta readout, not in the
-     hero.
+   - A full-bleed field in the live mode.
+   - The giant two-line wordmark on solid `--f` bars: `null` (400) and, indented, `Point` (800),
+     Archivo wdth 125. On scroll the lines drift apart (−14% / +10%), the two legs moving opposite
+     ways.
+   - Below, a panel holds the h1, the sub and the two CTAs (COPY.md). The hint chip sits at the
+     bottom right on pointer devices.
+   - The live numbers (active coin, funding, share price) live in the HUD and the dashboard.
 3. **Two legs** (pinned scrub, +160%):
    - The field zooms out like an aerial view until the cells resolve into a 30-day chart: BTC price
      (dotted) swinging while the hedged NAV (solid) stays flat.

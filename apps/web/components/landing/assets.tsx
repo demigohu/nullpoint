@@ -36,8 +36,8 @@ export function Assets({ radar, active }: { radar: Radar; active: string | null 
     <section ref={root} className="overflow-hidden">
       <div ref={track} className="flex w-max flex-col gap-[var(--pad)] p-[var(--pad)] pt-28 max-md:w-full md:h-[100dvh] md:flex-row md:items-center">
         <div className="w-full md:w-[34vw] md:shrink-0">
-          <h2 className="wdth-118 text-[clamp(2.2rem,4.6vw,5.4rem)] font-extrabold leading-[0.9] tracking-[-0.045em]">Three coins. The vault holds whichever pays most.</h2>
-          <p className="mt-5 max-w-[44ch] text-[15px] leading-[1.5]">Live from Hyperliquid. Funding changes every hour and can turn negative.</p>
+          <h2 className="wdth-118 text-[clamp(2.2rem,4.6vw,5.4rem)] font-extrabold leading-[0.9] tracking-[-0.045em]">Three coins. The agent holds whichever pays best.</h2>
+          <p className="mt-5 max-w-[44ch] text-[15px] leading-[1.5]">Live funding from Hyperliquid, as a yearly rate. It changes every hour and can go negative. When none of the three pays, the vault waits in USDC.</p>
         </div>
         {radar.map((r) => {
           const m = MODES[modeOf(r.symbol)];
@@ -51,15 +51,15 @@ export function Assets({ radar, active }: { radar: Radar; active: string | null 
                 <FieldCanvas mode={modeOf(r.symbol)} cell={20} speed={0.6} />
                 <figcaption className="absolute -bottom-7 left-0 flex w-full justify-between font-mono text-[11px]">
                   <span className="chip">monitor {r.symbol}</span>
-                  {r.symbol === active && <span className="chip">held now</span>}
+                  {r.symbol === active && <span className="chip">vault holds this</span>}
                 </figcaption>
               </figure>
               <div className="max-md:mt-6">
                 <h3 className="wdth-125 text-[clamp(3rem,7vw,8rem)] font-extrabold leading-[0.85] tracking-[-0.05em]">{r.symbol}</h3>
                 <dl className="num mt-6 grid gap-3 border-t border-tc pt-4 text-[14px]">
                   <div className="flex justify-between gap-4"><dt>Funding now</dt><dd className="font-bold">{r.aprNow.toFixed(1)}% a year</dd></div>
-                  <div className="flex justify-between gap-4"><dt>8h average</dt><dd>{r.apr8h.toFixed(1)}% a year</dd></div>
-                  <div className="flex justify-between gap-4"><dt>Open interest</dt><dd>{money(r.oiUsd)}</dd></div>
+                  <div className="flex justify-between gap-4"><dt>Last 8 hours</dt><dd>{r.apr8h.toFixed(1)}% a year</dd></div>
+                  <div className="flex justify-between gap-4"><dt>Market size</dt><dd>{money(r.oiUsd)}</dd></div>
                 </dl>
               </div>
             </article>

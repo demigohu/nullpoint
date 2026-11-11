@@ -34,9 +34,9 @@ export default async function Dashboard() {
 
   const stats = [
     ["Share price", `$${ov.sharePrice.toFixed(4)}`, `Recorded ${state.snapshot ? ago(state.snapshot.ms) : "never"}`],
-    ["Total deposits", money(tvl), `${(Number(state.total_shares) / 1e6).toLocaleString(undefined, { maximumFractionDigits: 2 })} shares`],
-    ["Funding now", active ? `${activeRate.toFixed(1)}%` : "0%", active ? `a year, on ${active} (8h average)` : "Parked in USDC"],
-    ["Hedge gap (Δ)", active ? `${hedge.delta >= 0 ? "+" : "−"}${Math.abs(hedge.delta).toFixed(4)}` : "0", "Coin held minus the short. Near zero means fully hedged."],
+    ["Vault size", money(tvl), `${(Number(state.total_shares) / 1e6).toLocaleString(undefined, { maximumFractionDigits: 2 })} shares`],
+    ["Funding now", active ? `${activeRate.toFixed(1)}%` : "0%", active ? `a year on ${active}, averaged over 8 hours` : "Waiting in USDC"],
+    ["Hedge gap (Δ)", active ? `${hedge.delta >= 0 ? "+" : "−"}${Math.abs(hedge.delta).toFixed(4)}` : "0", "Coin held minus the short. Close to zero means fully hedged."],
   ] as const;
 
   return (
@@ -45,7 +45,7 @@ export default async function Dashboard() {
         <h1 className="wdth-118 text-[clamp(2.2rem,4.6vw,5.4rem)] font-extrabold leading-[0.9] tracking-[-0.045em] md:col-span-8">What the vault is doing right now</h1>
         <p className="font-mono text-[12px] leading-[1.6] md:col-span-4 md:text-right">
           {net.network} · {state.paused ? <span className="bg-alarm px-1 text-fc">vault paused</span> : "running"} ·{" "}
-          {active ? `hedging ${active}` : "parked in USDC"}
+          {active ? `hedging ${active}` : "waiting in USDC"}
           <br />
           <a href={L.hlAddress(state.config.vault_address)} target="_blank" rel="noreferrer" className="underline underline-offset-2">The vault&apos;s Hyperliquid account ↗</a>
         </p>
@@ -72,10 +72,10 @@ export default async function Dashboard() {
                 series={[{ key: "share", label: "Share", points: nav.map((p) => ({ x: p.ms, y: Number(p.nav) / Number(p.total_shares) })) }]}
                 yFormat="usd3"
                 xFormat="datetime"
-                caption="Recorded on-chain every 10 minutes."
+                caption="The contract records the share price every 10 minutes."
               />
             ) : (
-              <p className="py-16 text-center text-[14px]">One point so far. The vault records the share price every 10 minutes while the keeper runs.</p>
+              <p className="py-16 text-center text-[14px]">Only one point so far. The contract adds one every 10 minutes while the agent is running.</p>
             )}
           </div>
         </div>
@@ -83,9 +83,9 @@ export default async function Dashboard() {
         <div className="grid gap-[var(--pad)] lg:col-span-4">
           <div className="panel p-[var(--pad)]">
             <h2 className="wdth-110 text-[clamp(1.3rem,1.8vw,1.8rem)] font-bold tracking-[-0.03em]">
-              <Term k="funding">Funding</Term> across the three coins
+              What each coin pays (<Term k="funding">funding</Term>)
             </h2>
-            <p className="mt-1 text-[13px]">Hyperliquid mainnet, a year. The short earns it when positive.</p>
+            <p className="mt-1 text-[13px]">Live from Hyperliquid mainnet, as a yearly rate. Positive means the short gets paid.</p>
             <ul className="mt-4 grid grid-cols-3 gap-2">
               {radar.map((r) => {
                 const m = modeOf(r.symbol);
@@ -104,26 +104,26 @@ export default async function Dashboard() {
                 );
               })}
             </ul>
-            <p className="mt-3 text-[12px] leading-[1.4]">Payback: hours of extra funding needed to recover a switch (0.4%). The limits allow 168h at most.</p>
+            <p className="mt-3 text-[12px] leading-[1.4]">Payback is how many hours of extra funding it takes to earn back the 0.4% cost of switching. The agent may only switch when that is 168 hours (7 days) or less.</p>
           </div>
 
           <div className="panel p-[var(--pad)]">
-            <h2 className="chip">The two legs</h2>
+            <h2 className="chip">Both sides right now</h2>
             <dl className="num mt-3 grid gap-2 text-[13px]">
-              <div className="flex justify-between gap-3"><dt>Long (NEAR Intents)</dt><dd>{spot.filter((s) => s.qty).map((s) => `${s.qty.toPrecision(4)} ${s.symbol}`).join(", ") || "none"}</dd></div>
+              <div className="flex justify-between gap-3"><dt>Coin held (NEAR Intents)</dt><dd>{spot.filter((s) => s.qty).map((s) => `${s.qty.toPrecision(4)} ${s.symbol}`).join(", ") || "none"}</dd></div>
               {shorts.map((p) => (
                 <div key={p.coin} className="flex justify-between gap-3"><dt>Short (Hyperliquid)</dt><dd>{p.szi} {p.coin} @ {Number(p.entryPx).toPrecision(5)}</dd></div>
               ))}
-              <div className="flex justify-between gap-3"><dt>Hyperliquid account</dt><dd>{money(Number(state.account_value) / 1e6)}</dd></div>
+              <div className="flex justify-between gap-3"><dt>Collateral on Hyperliquid</dt><dd>{money(Number(state.account_value) / 1e6)}</dd></div>
             </dl>
           </div>
         </div>
       </section>
 
       <section className="panel p-[var(--pad)]">
-        <h2 className="wdth-110 text-[clamp(1.3rem,1.8vw,1.8rem)] font-bold tracking-[-0.03em]">What happened, in order</h2>
+        <h2 className="wdth-110 text-[clamp(1.3rem,1.8vw,1.8rem)] font-bold tracking-[-0.03em]">Everything the vault did, newest first</h2>
         <p className="mt-1 text-[13px]">
-          Every <Term k="MPC signature" /> the vault requested and every strategist decision, newest first.
+          Every <Term k="MPC signature" /> the contract asked for and every decision the AI made, in plain words. The raw details sit under each line.
         </p>
         <ol className="mt-4">
           {feed.map((a, i) => (

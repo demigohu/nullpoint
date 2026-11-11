@@ -144,7 +144,7 @@ export function AccountMenu({ network, liveMode }: { network: Network; liveMode:
                     {mint.hash && <a href={links(net).tx(mint.hash)} target="_blank" rel="noreferrer" className="underline underline-offset-2">Transaction ↗</a>}
                   </span>
                 ) : (
-                  "Mints test USDC to your wallet. Testnet only, no real value. 1 transaction."
+                  "Mints 100 test USDC to your wallet. It's testnet money with no real value. 1 transaction."
                 )}
               </p>
             </div>
@@ -159,13 +159,13 @@ export function AccountMenu({ network, liveMode }: { network: Network; liveMode:
                 </button>
               ))}
             </div>
-            {!NETS.mainnet.deployed && <p className="mt-2 text-[12px] leading-[1.4]">Mainnet opens after launch; until then it shows live market data only.</p>}
+            {!NETS.mainnet.deployed && <p className="mt-2 text-[12px] leading-[1.4]">Mainnet opens after launch. Until then it only shows live market data.</p>}
           </div>
 
           <div className="border-b border-tc px-4 py-3">
             <p className="font-mono text-[11px] uppercase tracking-[0.2em]">Colors</p>
             <p className="mt-1 text-[12px] leading-[1.4]">
-              They follow the coin the vault holds ({live === "park" ? "parked in USDC" : MODES[live].label}) and change when it rotates. Preview another:
+              The site takes the colors of the coin the vault holds ({live === "park" ? "none, it's waiting in USDC" : MODES[live].label}) and changes when the agent switches. Preview another:
             </p>
             <div role="radiogroup" aria-label="Color mode" className="mt-2 grid grid-cols-4 border border-tc">
               {ORDER.map((m) => (

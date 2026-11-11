@@ -11,9 +11,9 @@ const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jb" });
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.SITE_URL ?? "http://localhost:3000"),
-  title: "NullPoint: USDC that earns perp funding",
+  title: "NullPoint: earn from crypto without betting on it",
   description:
-    "Deposit USDC on NEAR. The vault holds a coin and an equal short on Hyperliquid, so price moves cancel and the hourly funding goes to your shares.",
+    "Deposit USDC on NEAR. The vault holds a coin and an equal short on Hyperliquid, so price swings cancel and the hourly funding goes to your shares. An AI agent runs it and can't withdraw.",
 };
 
 // Before first paint: restore the pause choice and skip the loader on repeat visits.
