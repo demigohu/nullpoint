@@ -328,6 +328,8 @@ Toggle testnet/mainnet di semua halaman. Versi hosted default ke mainnet. Wallet
 - **Lock:** satu keeper per host (`.state/keeper.lock`). Satu keeper per key adalah aturan operasional.
 - **Jurnal:** setiap perpindahan dana dicatat (quote → signed → executed → filled). Setelah crash, siklus berikutnya melanjutkan: intent dicek dengan `is_nonce_used` lalu dieksekusi kalau belum dan masih berlaku, `sendAsset` dikirim ulang (Hyperliquid menolak nonce ganda), solver mock tidak mengisi dua kali. Diuji dengan crash paksa setelah MPC menandatangani transfer margin.
 - **Skala withdraw:** sampai 5 per siklus, FIFO, likuiditas dikumpulkan khusus untuk antrean.
+- **Selisih hedge kecil:** order IOC bisa terisi sebagian (terlihat di testnet: short 0,00022 BTC terisi 0,0002), meninggalkan selisih di luar band tapi di bawah minimum order $10. Akibatnya keeper berhenti report dan NAV basi menahan deposit. Langkah hedge kini menutup selisih seperti itu dengan dua order: short sebesar selisih + satu order minimum, lalu buy back order minimum itu. Kaki short selalu jalan duluan.
+- **Leverage venue ≠ leverage vault:** leverage ekonomi (2x) ditentukan pembagian dana (margin = equity / (L+1)). Setelan leverage Hyperliquid hanya menentukan initial margin per order. Kalau disetel sama dengan L, margin terpakai 100% dan order apa pun ditolak ("Insufficient margin"). Keeper menyetel min(5x, maks aset). Risiko likuidasi tidak berubah karena mode cross diukur dari maintenance margin terhadap nilai akun, dan tetap dijaga aturan darurat margin (< 3× maintenance).
 - **Deploy:** `ecosystem.config.cjs` (pm2, autorestart). Monitoring yang disarankan: endpoint health yang gagal bila NAV > 5 menit, dipantau uptime checker.
 
 ## 7. Risiko dan model ancaman

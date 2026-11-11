@@ -27,6 +27,9 @@ const [VAULT, VERIFIER] = ["vault", "verifier"].map((p) => `${p}.${OWNER}`);
 const keeper = signerFromEnv(NET, "KEEPER");
 const solver = signerFromEnv(NET, "SOLVER"); // testnet: plays 1Click on the mock verifier
 const DEFAULT_TARGET = "BTC";
+// The vault's leverage is set by the split (margin = equity / (L + 1)). The venue setting only sets the
+// initial margin per order; at L itself every dollar of margin is already used and no order fits.
+const VENUE_LEVERAGE = 5;
 const MIN_TRADE_USDC = 12_000_000n; // Hyperliquid rejects orders under $10, so spot moves in hedgeable chunks
 const STRAY_MIN_USDC = 10_500_000n; // leftover of a non-target asset worth moving: its short can still be closed (>$10)
 const MAX_WITHDRAWALS_PER_CYCLE = 5; // each needs an MPC signature (~15s)
@@ -52,14 +55,16 @@ const keeperCall = (method: string, args: object, gas = 100) => keeper.call(VAUL
 const log = (...a: unknown[]) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
 // Hyperliquid market data for the current cycle, used by every order the keeper places.
-let market: { vault: string; meta: Awaited<ReturnType<typeof info.metaAndAssetCtxs>>[0]; mark: (coin: string) => number; leverage: number };
+let market: { vault: string; meta: Awaited<ReturnType<typeof info.metaAndAssetCtxs>>[0]; mark: (coin: string) => number };
 
 /**
  * Changes the short in `coin` by `delta` coins (+ = short more, - = buy back) with an IOC order.
- * Returns false when the change is below Hyperliquid's $10 minimum (nothing to do). Throws if the
- * venue rejects the order, so callers can avoid changing spot without the matching hedge.
+ * Returns false when the change is below Hyperliquid's $10 minimum (nothing to do), unless `split`:
+ * then it overshoots by one minimum order and takes it back, so a small but real hedge gap still
+ * closes. Throws if the venue rejects the order, so callers can avoid changing spot without the
+ * matching hedge.
  */
-async function adjustShort(coin: string, delta: number): Promise<boolean> {
+async function adjustShort(coin: string, delta: number, { split = false } = {}): Promise<boolean> {
   if (delta < 0) {
     // Buying back can't exceed the open short (a reduce-only order would be rejected).
     const st = await retry(() => info.clearinghouseState({ user: market.vault }));
@@ -69,9 +74,22 @@ async function adjustShort(coin: string, delta: number): Promise<boolean> {
   const idx = market.meta.universe.findIndex((u) => u.name === coin);
   const szDec = market.meta.universe[idx]!.szDecimals;
   const size = Math.floor(Math.abs(delta) * 10 ** szDec) / 10 ** szDec;
-  if (size * market.mark(coin) < 10) return false;
+  if (size * market.mark(coin) < 10) {
+    if (!split || size === 0) return false;
+    // Short leg first, so the buy-back always has an open short to reduce.
+    const pad = Math.ceil((10.5 / market.mark(coin)) * 10 ** szDec) / 10 ** szDec;
+    if (delta > 0) {
+      await adjustShort(coin, size + pad);
+      await adjustShort(coin, -pad);
+    } else {
+      await adjustShort(coin, pad);
+      await adjustShort(coin, -(size + pad));
+    }
+    return true;
+  }
   const isBuy = delta < 0;
-  await retry(() => exchange.updateLeverage({ asset: idx, isCross: true, leverage: market.leverage }));
+  const leverage = Math.min(VENUE_LEVERAGE, market.meta.universe[idx]!.maxLeverage);
+  await retry(() => exchange.updateLeverage({ asset: idx, isCross: true, leverage }));
   const px = market.mark(coin) * (isBuy ? 1.01 : 0.99);
   const res = await retry(
     () => exchange.order({
@@ -274,7 +292,7 @@ async function cycle() {
     p = plan(await view<[number, OnChainDecision][]>(NET, VAULT, "get_decisions", { from: "0", limit: 500 }).then((d) => d.map(([, x]) => x)), nowMs);
   }
 
-  market = { vault: vaultAddress, meta, mark, leverage: p.leverage };
+  market = { vault: vaultAddress, meta, mark };
 
   // 3. allocate: settle withdrawals, then one capped move toward
   //    margin = equity / (L+1) on Hyperliquid, spot = the rest in the target asset (or USDC when parked).
@@ -384,12 +402,18 @@ async function cycle() {
   }
   balances = await readBalances();
 
-  // 4. hedge: short size per asset = spot held (trues up rounding and anything a failed move left)
+  // 4. hedge: short size per asset = spot held (trues up rounding and anything a failed move left,
+  // e.g. an IOC short that only partly filled). Gaps outside the band close even below $10.
   hl = await retry(() => info.clearinghouseState({ user: vaultAddress }));
   const shortOf = (coin: string) => -Number(hl.assetPositions.find((x) => x.position.coin === coin)?.position.szi ?? 0);
+  const gapOf = (i: number, a: (typeof ASSETS)[number]) => Number(balances[i + 1]!) / 10 ** a.decimals - shortOf(a.hlCoin);
+  const outOfBand = (i: number, a: (typeof ASSETS)[number]) => {
+    const spotUsd = (Number(balances[i + 1]!) / 10 ** a.decimals) * mark(a.hlCoin);
+    return Math.abs(gapOf(i, a)) * mark(a.hlCoin) > (spotUsd * Number(state.params.hedge_band_bps)) / 10_000 + Number(state.params.dust_usdc) / 1e6;
+  };
   try {
     for (const [i, a] of ASSETS.entries()) {
-      await adjustShort(a.hlCoin, Number(balances[i + 1]!) / 10 ** a.decimals - shortOf(a.hlCoin));
+      await adjustShort(a.hlCoin, gapOf(i, a), { split: outOfBand(i, a) });
     }
   } catch (e) {
     log("hedge failed:", (e as Error).message);
@@ -411,12 +435,7 @@ async function cycle() {
   const accountValue = Math.round(Number(hl.marginSummary.accountValue) * 1e6).toString();
   // Don't report a hedge we know is off: the contract would pause the vault. A stale NAV only holds
   // deposits until the next cycle fixes the hedge (e.g. Hyperliquid refusing orders under congestion).
-  const offHedge = ASSETS.filter((a, i) => {
-    const spot = Number(balances[i + 1]!) / 10 ** a.decimals;
-    const short = -Number(hl.assetPositions.find((x) => x.position.coin === a.hlCoin)?.position.szi ?? 0);
-    const gapUsd = Math.abs(spot - short) * mark(a.hlCoin);
-    return gapUsd > (spot * mark(a.hlCoin) * Number(state.params.hedge_band_bps)) / 10_000 + Number(state.params.dust_usdc) / 1e6;
-  });
+  const offHedge = ASSETS.filter((a, i) => outOfBand(i, a));
   if (offHedge.length) return log(`hedge off for ${offHedge.map((a) => a.symbol).join(", ")}; not reporting until it's fixed`);
   await keeperCall("report_position", { positions, account_value: accountValue });
   const after = await view(NET, VAULT, "get_state");
