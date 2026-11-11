@@ -3,8 +3,8 @@
 #   usdc.$OWNER      mock USDC (NEP-141, open mint)
 #   verifier.$OWNER  mock intents.near (real ERC-191 checks); $OWNER plays the 1Click solver
 #   vault.$OWNER     the vault
-#   keeper.$OWNER    keeper account (key saved to ~/.near-credentials for apps/keeper)
-# Keys for created accounts go to the OS keychain; the keeper's also to the legacy keychain file.
+#   keeper.$OWNER    agent account (key saved to ~/.near-credentials for apps/agent)
+# Keys for created accounts go to the OS keychain; the agent's also to the legacy keychain file.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -62,7 +62,7 @@ echo "vault EVM address (Intents account + Hyperliquid master): $VAULT_ADDRESS"
 INIT=$(cat <<EOF
 {
   "owner": "$OWNER",
-  "keeper": "keeper.$OWNER",
+  "agent": "keeper.$OWNER",
   "config": {
     "usdc": "usdc.$OWNER",
     "usdc_token_id": "nep141:usdc.$OWNER",

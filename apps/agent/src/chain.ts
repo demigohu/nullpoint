@@ -88,6 +88,6 @@ export function signer(network: Network, accountId: string, privateKey: string):
 /** Signer from <PREFIX>_ACCOUNT / <PREFIX>_PRIVATE_KEY. */
 export function signerFromEnv(network: Network, prefix: string): Signer {
   const account = process.env[`${prefix}_ACCOUNT`], key = process.env[`${prefix}_PRIVATE_KEY`];
-  if (!account || !key) throw new Error(`set ${prefix}_ACCOUNT and ${prefix}_PRIVATE_KEY (scripts/add-keeper-keys.ts creates them)`);
+  if (!account || !key) throw new Error(`set ${prefix}_ACCOUNT and ${prefix}_PRIVATE_KEY (scripts/add-agent-keys.ts creates them)`);
   return signer(network, account, key);
 }

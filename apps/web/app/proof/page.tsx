@@ -122,7 +122,7 @@ export default async function Proof() {
           {[
             ["Vault contract", net.vault, L.account(net.vault)],
             ["Vault's MPC address (owns the Hyperliquid and Intents accounts)", addr, L.hlAddress(addr)],
-            ["Agent account (NEAR)", state.keeper, L.account(state.keeper)],
+            ["Agent account (NEAR)", state.agent, L.account(state.agent)],
             ["Intents verifier", state.config.verifier, L.account(state.config.verifier)],
             ["MPC signer", state.config.mpc, L.account(state.config.mpc)],
           ].map(([k, v, href]) => (

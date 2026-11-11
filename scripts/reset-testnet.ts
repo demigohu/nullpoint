@@ -11,14 +11,14 @@ import { ExchangeClient, HttpTransport, InfoClient } from "@nktkas/hyperliquid";
 import { privateKeyToAccount } from "viem/accounts";
 import { postSignedAction, signedMessage, view } from "@nullpoint/core";
 import { mustCall } from "@nullpoint/core/node";
-import * as oneclick from "../apps/keeper/src/mock1click.ts";
+import * as oneclick from "../apps/agent/src/mock1click.ts";
 
 const OWNER = process.env.OWNER ?? "nullpoint.testnet";
-const [VAULT, VERIFIER, USDC, KEEPER] = ["vault", "verifier", "usdc", "keeper"].map((p) => `${p}.${OWNER}`);
-const agent = privateKeyToAccount(JSON.parse(readFileSync(new URL("../.keys/hl-agent.json", import.meta.url), "utf8")).privateKey);
+const [VAULT, VERIFIER, USDC, AGENT] = ["vault", "verifier", "usdc", "keeper"].map((p) => `${p}.${OWNER}`);
+const hlAgent = privateKeyToAccount(JSON.parse(readFileSync(new URL("../.keys/hl-agent.json", import.meta.url), "utf8")).privateKey);
 const transport = new HttpTransport({ isTestnet: true });
 const info = new InfoClient({ transport });
-const exchange = new ExchangeClient({ transport, wallet: agent });
+const exchange = new ExchangeClient({ transport, wallet: hlAgent });
 const step = (s: string) => console.log(`\n## ${s}`);
 
 const { config } = await view("testnet", VAULT, "get_state");
@@ -66,7 +66,7 @@ for (let free = Number((await info.clearinghouseState({ user: master })).withdra
     deadline: new Date(Date.now() + 10 * 60_000).toISOString(),
   });
   const salt = await view<string>("testnet", VERIFIER, "current_salt");
-  await mustCall(KEEPER, VAULT, "sign_quote", { message: signedMessage(q), signature: q.signature, salt_hex: salt }, { gas: 300, legacy: true });
+  await mustCall(AGENT, VAULT, "sign_quote", { message: signedMessage(q), signature: q.signature, salt_hex: salt }, { gas: 300, legacy: true });
   const { signed_count } = await view("testnet", VAULT, "get_state");
   const [[, s]] = await view("testnet", VAULT, "get_signed", { from: String(signed_count - 1), limit: 1 });
   console.log("vault-signed sendAsset ->", JSON.stringify(await postSignedAction("testnet", s.payload, s.signature)));

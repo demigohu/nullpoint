@@ -17,7 +17,7 @@ export const modeOf = (symbol: string | null | undefined): Mode => {
 
 /**
  * The coin the vault is committed to: the last accepted ROTATE/RESUME/PARK decision, BTC before any
- * (mirrors the keeper's plan()). Positions alone would flicker to "parked" while a withdrawal briefly
+ * (mirrors the agent's plan()). Positions alone would flicker to "parked" while a withdrawal briefly
  * closes the short.
  */
 export const targetMode = (decisions: { accepted: boolean; action: string; target: string | null }[]): Mode => {

@@ -1,7 +1,7 @@
-// Tries to steal from the testnet vault with the keeper's own keys. Every attempt must be rejected.
+// Tries to steal from the testnet vault with the agent's own keys. Every attempt must be rejected.
 //   node attack.ts
 // Hyperliquid: the agent wallet tries withdraw3, usdSend and agentSendAsset to an outside address.
-// NEAR: the keeper tries to sign a 1Click quote whose recipient was swapped for the attacker's.
+// NEAR: the agent tries to sign a 1Click quote whose recipient was swapped for the attacker's.
 import { readFileSync } from "node:fs";
 import { ExchangeClient, HttpTransport, InfoClient } from "@nktkas/hyperliquid";
 import { privateKeyToAccount } from "viem/accounts";
@@ -10,9 +10,9 @@ import { call } from "@nullpoint/core/node";
 
 const OWNER = process.env.OWNER ?? "nullpoint.testnet";
 const ATTACKER = "0x000000000000000000000000000000000000dEaD";
-const agent = privateKeyToAccount(JSON.parse(readFileSync(new URL("../.keys/hl-agent.json", import.meta.url), "utf8")).privateKey);
+const hlAgent = privateKeyToAccount(JSON.parse(readFileSync(new URL("../.keys/hl-agent.json", import.meta.url), "utf8")).privateKey);
 const transport = new HttpTransport({ isTestnet: true });
-const exchange = new ExchangeClient({ transport, wallet: agent });
+const exchange = new ExchangeClient({ transport, wallet: hlAgent });
 const info = new InfoClient({ transport });
 const { config } = await view("testnet", `vault.${OWNER}`, "get_state");
 const master = config.vault_address;
@@ -35,7 +35,7 @@ async function expectRejected(name: string, fn: () => Promise<unknown> | unknown
 }
 
 const before = (await info.clearinghouseState({ user: master })).marginSummary.accountValue;
-console.log(`vault master ${master} (perp ${before} USDC), agent ${agent.address}\n`);
+console.log(`vault master ${master} (perp ${before} USDC), agent ${hlAgent.address}\n`);
 
 await expectRejected("agent withdraw3 to attacker", () => exchange.withdraw3({ destination: ATTACKER, amount: "1" }));
 await expectRejected("agent usdSend to attacker", () => exchange.usdSend({ destination: ATTACKER, amount: "1" }));
@@ -46,7 +46,7 @@ await expectRejected("agent agentSendAsset to attacker", () =>
 const quote = readFileSync(new URL("../contracts/vault/testdata/swap_usdc_btc.json", import.meta.url), "utf8");
 const forged = quote.replace("0x5e33437e5b871f1aa9e252dd00a36c53dfcb9a8d", ATTACKER.toLowerCase());
 const signature = readFileSync(new URL("../contracts/vault/testdata/swap_usdc_btc.sig", import.meta.url), "utf8").trim();
-await expectRejected("keeper signs a 1Click quote paying the attacker", () => {
+await expectRejected("agent signs a 1Click quote paying the attacker", () => {
   const r = call(`keeper.${OWNER}`, `vault.${OWNER}`, "sign_quote", { message: forged, signature, salt_hex: "00000000" }, { gas: 300, legacy: true });
   if (r.ok) return r.tx;
   throw new Error(r.output.match(/Smart contract panicked: [^\n]*/)?.[0] ?? "failed");

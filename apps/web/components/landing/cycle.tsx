@@ -1,5 +1,5 @@
 "use client";
-// One cycle, four verbs (DESIGN.md §7.4): pinned on desktop; scroll walks the keeper's steps and
+// One cycle, four verbs (DESIGN.md §7.4): pinned on desktop; scroll walks the agent's steps and
 // the square field acts each one out. Mobile and reduced motion: the step in view is active.
 import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";

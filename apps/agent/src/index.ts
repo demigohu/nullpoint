@@ -1,11 +1,11 @@
-// NullPoint keeper (testnet). Stateless: each cycle reads the vault and Hyperliquid, then converges.
+// NullPoint agent (testnet). Stateless: each cycle reads the vault and Hyperliquid, then converges.
 //   1. report verified prices (1Click quotes; mock on testnet)
 //   2. strategist (LLM on NEAR AI Cloud, rule fallback) -> guardrail -> decision recorded on-chain
 //   3. desired spot = all in the target asset (or USDC when parked); swap one capped step toward it
 //   4. size each Hyperliquid short to its spot (agent wallet)
 //   5. report the Hyperliquid side; the contract checks it and recomputes NAV
 //   node src/index.ts [--once]
-//   env: KEEPER_ACCOUNT/KEEPER_PRIVATE_KEY (function-call key on the vault), HL_AGENT_PRIVATE_KEY,
+//   env: AGENT_ACCOUNT/AGENT_PRIVATE_KEY (function-call key on the vault), HL_AGENT_PRIVATE_KEY,
 //        SOLVER_ACCOUNT/SOLVER_PRIVATE_KEY (testnet mock 1Click), OWNER, INTERVAL_S (60),
 //        STRATEGIST_INTERVAL_MIN (30), NEARAI_API_KEY,
 //        STRATEGIST=rule to skip the LLM; DEMO_FUNDING='{"NEAR":60}' and DEMO_MIN_HOLD_HOURS=0 to stage a rotation on testnet
@@ -24,7 +24,7 @@ import * as oneclick from "./mock1click.ts";
 const NET = "testnet";
 const OWNER = process.env.OWNER ?? "nullpoint.testnet";
 const [VAULT, VERIFIER] = ["vault", "verifier"].map((p) => `${p}.${OWNER}`);
-const keeper = signerFromEnv(NET, "KEEPER");
+const agent = signerFromEnv(NET, "AGENT");
 const solver = signerFromEnv(NET, "SOLVER"); // testnet: plays 1Click on the mock verifier
 const DEFAULT_TARGET = "BTC";
 // The vault's leverage is set by the split (margin = equity / (L + 1)). The venue setting only sets the
@@ -44,17 +44,17 @@ let lastStrategistRunMs = 0;
 const DEMO_FUNDING: Record<string, number> = JSON.parse(process.env.DEMO_FUNDING ?? "{}");
 const LIMITS_USED = { ...LIMITS, ...(process.env.DEMO_MIN_HOLD_HOURS ? { minHoldHours: Number(process.env.DEMO_MIN_HOLD_HOURS) } : {}) };
 
-const agent = privateKeyToAccount(
+const hlAgent = privateKeyToAccount(
   (process.env.HL_AGENT_PRIVATE_KEY || JSON.parse(readFileSync(new URL("../../../.keys/hl-agent.json", import.meta.url), "utf8")).privateKey) as `0x${string}`,
 );
 const transport = new HttpTransport({ isTestnet: true });
 const info = new InfoClient({ transport });
-const exchange = new ExchangeClient({ transport, wallet: agent });
+const exchange = new ExchangeClient({ transport, wallet: hlAgent });
 
-const keeperCall = (method: string, args: object, gas = 100) => keeper.call(VAULT, method, args, { gas });
+const agentCall = (method: string, args: object, gas = 100) => agent.call(VAULT, method, args, { gas });
 const log = (...a: unknown[]) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
-// Hyperliquid market data for the current cycle, used by every order the keeper places.
+// Hyperliquid market data for the current cycle, used by every order the agent places.
 let market: { vault: string; meta: Awaited<ReturnType<typeof info.metaAndAssetCtxs>>[0]; mark: (coin: string) => number };
 
 /**
@@ -130,7 +130,7 @@ function plan(decisions: OnChainDecision[], nowMs: number) {
     heldSinceMs: last?.ms ?? 0,
     rotationsLast24h: moves.filter((d) => d.action === "ROTATE" && nowMs - d.ms < 86_400_000).length,
     leverage: lev ? Number(lev.target) : LIMITS.maxLeverage,
-    lastStrategistMs: decisions.filter((d) => d.source !== "keeper").at(-1)?.ms ?? 0,
+    lastStrategistMs: decisions.filter((d) => d.source !== "agent").at(-1)?.ms ?? 0,
     lastHoldRecordMs: decisions.filter((d) => d.action === "HOLD").at(-1)?.ms ?? 0,
   };
 }
@@ -174,7 +174,7 @@ async function decide(ctx: Context, mkts: Market[], p: ReturnType<typeof plan>) 
   if (decision.action !== "HOLD" || ctx.nowMs - p.lastHoldRecordMs >= RECORD_HOLD_EVERY_MS) {
     const note = (accepted ? decision.reasoning : `rejected: ${(g as { reason: string }).reason} | ${decision.reasoning}`).slice(0, 280);
     const target = decision.action === "SET_LEVERAGE" ? String(decision.leverage) : (decision.target ?? null);
-    await keeperCall("report_decision", { decision: { ms: 0, hash, source, action: decision.action, target, accepted, note, chat_id: chatId, signing_address: signer } });
+    await agentCall("report_decision", { decision: { ms: 0, hash, source, action: decision.action, target, accepted, note, chat_id: chatId, signing_address: signer } });
   }
 }
 
@@ -194,11 +194,11 @@ async function moveViaQuote(req: Record<string, unknown>) {
   const dep = q.quote.depositAddress as string;
   journal.put(dep, { q, ms: Date.now() });
   const salt = await view<string>(NET, VERIFIER, "current_salt");
-  const tx = await keeperCall("sign_quote", { message: msg(q), signature: q.signature, salt_hex: salt }, 300);
+  const tx = await agentCall("sign_quote", { message: msg(q), signature: q.signature, salt_hex: salt }, 300);
   const { signed_count } = await view(NET, VAULT, "get_state");
   journal.update(dep, { signedId: signed_count - 1 });
   // Test hook for crash recovery: die after MPC signed, before the move executes.
-  if (process.env.KEEPER_TEST_CRASH_AFTER_SIGN === "1") process.exit(99);
+  if (process.env.AGENT_TEST_CRASH_AFTER_SIGN === "1") process.exit(99);
   await settle(dep);
   return tx.tx;
 }
@@ -266,7 +266,7 @@ async function cycle() {
   const { vault_address: vaultAddress, usdc_token_id: usdcToken } = state.config;
   await resumeMoves();
   if (state.paused) return log("vault paused, skipping (owner must investigate and unpause)");
-  if (BigInt(state.pending_usdc) > 0n) log("swept deposits, tx", (await keeperCall("sweep", {}, 150)).tx);
+  if (BigInt(state.pending_usdc) > 0n) log("swept deposits, tx", (await agentCall("sweep", {}, 150)).tx);
   const side = { refundTo: vaultAddress, refundType: "INTENTS", recipient: vaultAddress, recipientType: "INTENTS", depositType: "INTENTS" };
   const nowMs = Date.now();
 
@@ -279,7 +279,7 @@ async function cycle() {
       return oneclick.quote({ dry: true, swapType: "EXACT_INPUT", slippageTolerance: 100, originAsset: a.tokenId, destinationAsset: usdcToken, amount: amount.toString(), deadline: new Date(nowMs + 10 * 60_000).toISOString(), ...side });
     }),
   );
-  await keeperCall("report_prices", { quotes: priceQuotes.map((r) => ({ message: msg(r), signature: r.signature })) });
+  await agentCall("report_prices", { quotes: priceQuotes.map((r) => ({ message: msg(r), signature: r.signature })) });
 
   // 2. strategist
   let p = plan(await view<[number, OnChainDecision][]>(NET, VAULT, "get_decisions", { from: "0", limit: 500 }).then((d) => d.map(([, x]) => x)), nowMs);
@@ -328,7 +328,7 @@ async function cycle() {
     // moves below unwind toward it and the rest is paid next cycle.
     for (const [id] of withdrawals.filter(([, w]) => w.status === "signed")) {
       try {
-        log(`paid withdrawal #${id} (tx ${(await keeperCall("execute_withdraw", { id }, 200)).tx})`);
+        log(`paid withdrawal #${id} (tx ${(await agentCall("execute_withdraw", { id }, 200)).tx})`);
       } catch (e) {
         log(`withdrawal #${id} execute failed, will re-sign:`, (e as Error).message.slice(0, 160));
       }
@@ -338,8 +338,8 @@ async function cycle() {
       const value = BigInt(Math.ceil(Number(w.shares) * navPerShare));
       if (value > budget || paid >= MAX_WITHDRAWALS_PER_CYCLE) break; // FIFO: don't let small ones jump the line
       const salt = await view<string>(NET, VERIFIER, "current_salt");
-      await keeperCall("fulfill_withdraw", { id, salt_hex: salt }, 300);
-      log(`paid withdrawal #${id} (tx ${(await keeperCall("execute_withdraw", { id }, 200)).tx})`);
+      await agentCall("fulfill_withdraw", { id, salt_hex: salt }, 300);
+      log(`paid withdrawal #${id} (tx ${(await agentCall("execute_withdraw", { id }, 200)).tx})`);
       budget -= value;
       paid++;
     }
@@ -437,7 +437,7 @@ async function cycle() {
   // deposits until the next cycle fixes the hedge (e.g. Hyperliquid refusing orders under congestion).
   const offHedge = ASSETS.filter((a, i) => outOfBand(i, a));
   if (offHedge.length) return log(`hedge off for ${offHedge.map((a) => a.symbol).join(", ")}; not reporting until it's fixed`);
-  await keeperCall("report_position", { positions, account_value: accountValue });
+  await agentCall("report_position", { positions, account_value: accountValue });
   const after = await view(NET, VAULT, "get_state");
   log(`NAV ${Number(after.snapshot?.nav ?? 0) / 1e6} USDC | target ${p.target ?? "PARKED"} | HL ${Number(accountValue) / 1e6} | ${JSON.stringify(positions)} | paused ${after.paused}`);
 }

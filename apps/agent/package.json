@@ -1,5 +1,5 @@
 {
-  "name": "keeper",
+  "name": "agent",
   "private": true,
   "type": "module",
   "scripts": {

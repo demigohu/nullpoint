@@ -1,20 +1,20 @@
-// Crash safety for the keeper host: a process lock, and a journal of fund moves so a restart can
+// Crash safety for the agent host: a process lock, and a journal of fund moves so a restart can
 // finish what a previous run started (a signed intent that never executed, an unfilled mock quote).
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import type { QuoteResponse } from "@nullpoint/core";
 
 const DIR = new URL("../.state/", import.meta.url);
-const LOCK = new URL("keeper.lock", DIR);
+const LOCK = new URL("agent.lock", DIR);
 const FILE = new URL("journal.json", DIR);
 mkdirSync(DIR, { recursive: true });
 
-/** One keeper per host: a second process exits instead of acting on the same vault twice. */
+/** One agent per host: a second process exits instead of acting on the same vault twice. */
 export function acquireLock() {
   if (existsSync(LOCK)) {
     const pid = Number(readFileSync(LOCK, "utf8"));
     try {
       process.kill(pid, 0);
-      throw new Error(`another keeper is running (pid ${pid}); stop it first`);
+      throw new Error(`another agent is running (pid ${pid}); stop it first`);
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "ESRCH") throw e; // stale lock from a crash: take over
     }

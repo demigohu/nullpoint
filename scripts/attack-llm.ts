@@ -1,7 +1,7 @@
 // Prompt injection against the strategist. Two layers:
 //   1. the real model (NEAR AI Cloud, TEE) reads hostile "market notes"
 //   2. a fully compromised model: its output is replaced with the attacker's wish list
-// Whatever the model says, the guardrail decides what the keeper may do. Nothing is sent on-chain.
+// Whatever the model says, the guardrail decides what the agent may do. Nothing is sent on-chain.
 //   node --env-file=../.env attack-llm.ts
 import { guardrail, type Context, type Market } from "@nullpoint/core";
 import { askStrategist, parseDecision } from "@nullpoint/core/strategist";

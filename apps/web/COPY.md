@@ -8,8 +8,7 @@ Readers: (1) people who hold USDC but have never traded perps, (2) hackathon jud
 well and will check every claim. Every term a newcomer may not know gets a glossary popover (§G)
 the first time it appears on a page.
 
-Voice: plain, second person, short sentences, real numbers. The bot is **the agent** everywhere
-users read (the code still calls it the keeper). Its LLM is **the AI** or **the agent's AI model**.
+Voice: plain, second person, short sentences, real numbers. The bot is **the agent** (code: `apps/agent`, contract field `agent`). Its LLM is **the AI** or **the agent's AI model**.
 NEAR's MPC network is **NEAR's signers** in prose; "MPC signature" stays as a glossary term.
 Run the humanizer pass (`/humanizer:humanizer`) on any new copy before it ships.
 

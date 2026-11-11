@@ -84,7 +84,7 @@ impl Contract {
         token_ids.iter().map(|t| U128(self.balance(&account_id, t))).collect()
     }
 
-    /// Same signature as intents.near: lets a keeper tell whether a signed intent already executed.
+    /// Same signature as intents.near: lets a agent tell whether a signed intent already executed.
     pub fn is_nonce_used(&self, account_id: String, nonce: String) -> bool {
         use base64::Engine;
         let n: [u8; 32] = base64::engine::general_purpose::STANDARD

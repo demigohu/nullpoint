@@ -66,7 +66,7 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
     return () => window.removeEventListener("np:balances", on);
   }, [refresh]);
 
-  // The keeper settles withdrawals on its own; keep the list live while any is in flight.
+  // The agent settles withdrawals on its own; keep the list live while any is in flight.
   const inFlight = mine.some((w) => w.status !== "done");
   useEffect(() => {
     if (!inFlight) return;

@@ -1,5 +1,5 @@
 // Strategy: the rule-based policy and the guardrails every decision (rule or LLM) must pass.
-// Pure functions; the keeper gathers the inputs and executes accepted decisions.
+// Pure functions; the agent gathers the inputs and executes accepted decisions.
 
 export type Market = {
   symbol: string;

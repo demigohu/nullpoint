@@ -1,6 +1,6 @@
 // NullPoint vault: USDC in, delta-neutral (spot in the vault's NEAR Intents account, short perp on
 // Hyperliquid). One MPC-derived EVM address is both the Intents account and the Hyperliquid master.
-// The keeper can only move funds through 1Click quotes the contract has verified (quote.rs).
+// The agent can only move funds through 1Click quotes the contract has verified (quote.rs).
 mod quote;
 mod util;
 
@@ -159,7 +159,7 @@ pub struct SignedQuote {
 #[near(serializers = [json])]
 pub struct State {
     pub owner: AccountId,
-    pub keeper: AccountId,
+    pub agent: AccountId,
     pub config: Config,
     pub params: Params,
     pub assets: Vec<Asset>,
@@ -179,7 +179,7 @@ pub struct State {
 #[derive(PanicOnDefault)]
 pub struct Contract {
     owner: AccountId,
-    keeper: AccountId,
+    agent: AccountId,
     config: Config,
     params: Params,
     assets: Vec<Asset>,
@@ -215,26 +215,26 @@ fn bps(amount: u128, bps: u32) -> u128 {
 #[near]
 impl Contract {
     #[init]
-    pub fn new(owner: AccountId, keeper: AccountId, config: Config, params: Params, assets: Vec<(String, String)>) -> Self {
-        Self::fresh(0, owner, keeper, config, params, assets)
+    pub fn new(owner: AccountId, agent: AccountId, config: Config, params: Params, assets: Vec<(String, String)>) -> Self {
+        Self::fresh(0, owner, agent, config, params, assets)
     }
 
     /// Wipes the vault to a fresh state on the same account (testnet resets). `#[private]`: only a
-    /// transaction signed by the vault account itself can call it, never the keeper or a user.
+    /// transaction signed by the vault account itself can call it, never the agent or a user.
     #[private]
     #[init(ignore_state)]
-    pub fn reinit(generation: u8, owner: AccountId, keeper: AccountId, config: Config, params: Params, assets: Vec<(String, String)>) -> Self {
+    pub fn reinit(generation: u8, owner: AccountId, agent: AccountId, config: Config, params: Params, assets: Vec<(String, String)>) -> Self {
         require!(generation > 0, "use a new generation");
-        Self::fresh(generation, owner, keeper, config, params, assets)
+        Self::fresh(generation, owner, agent, config, params, assets)
     }
 }
 
 impl Contract {
-    fn fresh(g: u8, owner: AccountId, keeper: AccountId, config: Config, params: Params, assets: Vec<(String, String)>) -> Self {
+    fn fresh(g: u8, owner: AccountId, agent: AccountId, config: Config, params: Params, assets: Vec<(String, String)>) -> Self {
         quote::decode_pubkey(&config.oneclick_pubkey);
         Self {
             owner,
-            keeper,
+            agent,
             config,
             params,
             assets: assets
@@ -264,9 +264,9 @@ impl Contract {
 impl Contract {
     // ---------- owner ----------
 
-    pub fn set_keeper(&mut self, keeper: AccountId) {
+    pub fn set_agent(&mut self, agent: AccountId) {
         self.assert_owner();
-        self.keeper = keeper;
+        self.agent = agent;
     }
 
     pub fn set_params(&mut self, params: Params) {
@@ -360,11 +360,11 @@ impl Contract {
         self.pending_usdc += amount.0 - used;
     }
 
-    // ---------- keeper: prices, positions, NAV ----------
+    // ---------- agent: prices, positions, NAV ----------
 
     /// Stores asset prices from dry 1Click quotes (asset -> USDC), verified on-chain.
     pub fn report_prices(&mut self, quotes: Vec<SignedQuote>) {
-        self.assert_keeper();
+        self.assert_agent();
         let pubkey = quote::decode_pubkey(&self.config.oneclick_pubkey);
         for sq in quotes {
             let (_, q) = quote::verify(&sq.message, &sq.signature, &pubkey);
@@ -378,10 +378,10 @@ impl Contract {
         }
     }
 
-    /// Keeper reports the Hyperliquid side; the contract reads spot balances itself, checks the
+    /// Agent reports the Hyperliquid side; the contract reads spot balances itself, checks the
     /// hedge and account value against its own records, then recomputes NAV.
     pub fn report_position(&mut self, positions: Vec<Position>, account_value: U128) -> Promise {
-        self.assert_keeper();
+        self.assert_agent();
         let mut tokens = vec![self.config.usdc_token_id.clone()];
         tokens.extend(self.assets.iter().map(|a| a.token_id.clone()));
         Promise::new(self.config.verifier.clone())
@@ -433,12 +433,12 @@ impl Contract {
     }
 
     pub fn report_decision(&mut self, decision: Decision) {
-        self.assert_keeper();
+        self.assert_agent();
         require!(decision.note.len() <= 280 && decision.hash.len() == 64, "note <= 280 chars, hash = sha256 hex");
         self.decisions.push(Decision { ms: now_ms(), ..decision });
     }
 
-    // ---------- keeper: moving funds through verified 1Click quotes ----------
+    // ---------- agent: moving funds through verified 1Click quotes ----------
 
     /// Verifies a 1Click quote and asks MPC to sign the matching transfer:
     /// - spot swap / rotation (Intents balance -> Intents balance),
@@ -446,7 +446,7 @@ impl Contract {
     /// - margin in (Hyperliquid master -> Intents USDC, as a Hyperliquid sendAsset).
     /// `salt_hex` is the verifier's current salt; a wrong salt only makes the intent invalid.
     pub fn sign_quote(&mut self, message: String, signature: String, salt_hex: String) -> Promise {
-        self.assert_keeper();
+        self.assert_agent();
         require!(!self.paused, "paused");
         let pubkey = quote::decode_pubkey(&self.config.oneclick_pubkey);
         let (hash, q) = quote::verify(&message, &signature, &pubkey);
@@ -525,7 +525,7 @@ impl Contract {
 
     // ---------- withdrawals ----------
 
-    /// Escrows shares for withdrawal. The keeper prices and signs it with `fulfill_withdraw`.
+    /// Escrows shares for withdrawal. The agent prices and signs it with `fulfill_withdraw`.
     pub fn request_withdraw(&mut self, shares: U128) -> u64 {
         let account = env::predecessor_account_id();
         let balance = self.shares.get(&account).copied().unwrap_or(0);
@@ -538,7 +538,7 @@ impl Contract {
     /// Prices a queued withdrawal off a fresh NAV, burns its shares and has MPC sign an Intents
     /// ft_withdraw to the user. A failed one can be re-signed at the same price.
     pub fn fulfill_withdraw(&mut self, id: u64, salt_hex: String) -> Promise {
-        self.assert_keeper();
+        self.assert_agent();
         let mut w = self.withdrawals.get(id as u32).cloned().expect("no such withdrawal");
         if w.status == "queued" {
             let nav = self.fresh_nav();
@@ -565,7 +565,7 @@ impl Contract {
         self.request_signature("intent_ft_withdraw", payload, digest)
     }
 
-    /// Submits a signed withdrawal to the verifier. Anyone can call, so the keeper can't hold funds.
+    /// Submits a signed withdrawal to the verifier. Anyone can call, so the agent can't hold funds.
     pub fn execute_withdraw(&mut self, id: u64) -> Promise {
         let w = self.withdrawals.get(id as u32).cloned().expect("no such withdrawal");
         require!(w.status == "signed", "withdrawal not signed");
@@ -609,7 +609,7 @@ impl Contract {
     pub fn get_state(&self) -> State {
         State {
             owner: self.owner.clone(),
-            keeper: self.keeper.clone(),
+            agent: self.agent.clone(),
             config: self.config.clone(),
             params: self.params.clone(),
             assets: self.assets.clone(),
@@ -652,8 +652,8 @@ impl Contract {
         require!(env::predecessor_account_id() == self.owner, "only owner");
     }
 
-    fn assert_keeper(&self) {
-        require!(env::predecessor_account_id() == self.keeper, "only keeper");
+    fn assert_agent(&self) {
+        require!(env::predecessor_account_id() == self.agent, "only agent");
     }
 
     /// Returns the quote's timestamp in ms after checking it's within max_price_age_s.

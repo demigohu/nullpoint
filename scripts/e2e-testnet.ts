@@ -6,7 +6,7 @@ import { mustCall } from "@nullpoint/core/node";
 
 const OWNER = process.env.OWNER ?? "nullpoint.testnet";
 const USER = OWNER; // the owner doubles as a depositor here
-const [USDC, VAULT, VERIFIER, KEEPER] = ["usdc", "vault", "verifier", "keeper"].map((p) => `${p}.${OWNER}`);
+const [USDC, VAULT, VERIFIER, AGENT] = ["usdc", "vault", "verifier", "keeper"].map((p) => `${p}.${OWNER}`);
 const N = "testnet";
 
 const step = (name: string) => console.log(`\n## ${name}`);
@@ -28,19 +28,19 @@ step("sweep into the vault's Intents account");
 r = await mustCall(USER, VAULT, "sweep", {}, { gas: 150 });
 console.log("tx", r.tx, "| verifier balance of", vaultAddress, "=", await view(N, VERIFIER, "mt_balance_of", { account_id: vaultAddress, token_id: `nep141:${USDC}` }));
 
-step("keeper: report position (none) -> NAV snapshot");
-r = await mustCall(KEEPER, VAULT, "report_position", { positions: [], account_value: "0" }, { legacy: true });
+step("agent: report position (none) -> NAV snapshot");
+r = await mustCall(AGENT, VAULT, "report_position", { positions: [], account_value: "0" }, { legacy: true });
 const s = await view(N, VAULT, "get_state");
 console.log("tx", r.tx, "| snapshot", JSON.stringify(s.snapshot), "| paused", s.paused);
 
-step("request withdraw 4 shares -> keeper fulfills (MPC signs ft_withdraw intent)");
+step("request withdraw 4 shares -> agent fulfills (MPC signs ft_withdraw intent)");
 const shares = BigInt(await view<string>(N, VAULT, "get_shares", { account_id: USER }));
 const take = shares < 4_000_000n ? shares : 4_000_000n;
 await mustCall(USER, VAULT, "request_withdraw", { shares: take.toString() });
 const { withdrawal_count } = await view(N, VAULT, "get_state");
 const id = withdrawal_count - 1;
 const salt = await view<string>(N, VERIFIER, "current_salt");
-r = await mustCall(KEEPER, VAULT, "fulfill_withdraw", { id, salt_hex: salt }, { gas: 300, legacy: true });
+r = await mustCall(AGENT, VAULT, "fulfill_withdraw", { id, salt_hex: salt }, { gas: 300, legacy: true });
 const [[, w]] = await view(N, VAULT, "get_withdrawals", { from: String(id), limit: 1 });
 const [[, signed]] = await view(N, VAULT, "get_signed", { from: String(w.signed_id), limit: 1 });
 console.log("tx", r.tx, "| withdrawal", JSON.stringify(w), "\n  signed payload", signed.payload, "\n  MPC signature", signed.signature);

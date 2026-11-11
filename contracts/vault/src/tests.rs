@@ -148,8 +148,8 @@ fn rejects_quote_paying_someone_else() {
 }
 
 #[test]
-#[should_panic(expected = "only keeper")]
-fn only_keeper_signs_quotes() {
+#[should_panic(expected = "only agent")]
+fn only_agent_signs_quotes() {
     let mut v = priced_vault();
     ctx(accounts(3), quote_ms(SWAP) + 1000);
     let _ = v.sign_quote(SWAP.into(), SWAP_SIG.trim().into(), "252812b3".into());
@@ -179,7 +179,7 @@ fn hedge_and_account_value_checks() {
     let unhedged = vec![Position { symbol: "BTC".into(), size: U128(spot / 2), entry_notional: U128(short_value / 2) }];
     assert!(v.check_and_value(&unhedged, 0, &balances).unwrap_err().contains("not hedged"));
 
-    // Keeper inflating the Hyperliquid account value is rejected.
+    // Agent inflating the Hyperliquid account value is rejected.
     assert!(v.check_and_value(&hedged, 5_000_000, &balances).unwrap_err().contains("account value"));
 
     let rogue = vec![Position { symbol: "DOGE".into(), size: U128(1), entry_notional: U128(1) }];
@@ -241,7 +241,7 @@ fn account_value_is_checked_against_the_last_report() {
     let hedged = vec![Position { symbol: "BTC".into(), size: U128(27_000), entry_notional: U128(value(27_000, a.price_out.0)) }];
     assert!(v.check_and_value(&hedged, 50_000_000 + gain, &[U128(0), U128(27_000), U128(0)]).is_ok());
 
-    // A keeper reporting 5 USDC that nothing explains is rejected.
+    // A agent reporting 5 USDC that nothing explains is rejected.
     let err = v.check_and_value(&hedged, 55_000_000 + gain, &[U128(0), U128(27_000), U128(0)]).unwrap_err();
     assert!(err.contains("account value"), "{err}");
 }

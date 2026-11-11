@@ -1,4 +1,4 @@
-// Minimal NEAR JSON-RPC helpers (no keys needed). Shared by keeper, scripts and the web app.
+// Minimal NEAR JSON-RPC helpers (no keys needed). Shared by agent, scripts and the web app.
 // Free public endpoints rate-limit, so each call falls through a list on 429 / 5xx / network errors.
 export const RPCS = {
   testnet: ["https://rpc.testnet.near.org", "https://near-testnet.drpc.org", "https://rpc.testnet.fastnear.com"],

@@ -41,7 +41,7 @@ down by animation.
 
 The site is always in exactly one **mode**. A mode is a duotone (`--t` sign color, `--f` ground
 color) plus a glyph pair. By default the mode follows the coin the vault is committed to: the last
-accepted ROTATE/RESUME/PARK decision (`targetMode`, the same rule as the keeper). Positions alone
+accepted ROTATE/RESUME/PARK decision (`targetMode`, the same rule as the agent). Positions alone
 would flicker to PARK while a withdrawal briefly closes the short. Open pages check every 60 s, and a
 rotation changes the colors live with the field's wave. The mode never cycles on a timer, so the
 color always means something. The account menu lets a visitor preview another mode for the session.
@@ -344,7 +344,7 @@ All components are sharp-cornered (radius 0) and use only `--t`, `--f`, Dim (non
    - A side panel explains where the fee comes from (funding).
    - This replaces the current hero chart.
 4. **One cycle, four verbs** (pinned, +280%):
-   - On the left, a list of the keeper cycle: `Sweep`, `Hedge`, `Report`, `Rotate`.
+   - On the left, a list of the agent cycle: `Sweep`, `Hedge`, `Report`, `Rotate`.
    - On the right, a square canvas whose behavior changes per step:
      - Sweep: cells enter from the edges.
      - Hedge: the signs pair up.
@@ -367,7 +367,7 @@ All components are sharp-cornered (radius 0) and use only `--t`, `--f`, Dim (non
 7. **The bot runs the trades. It can't take the money.**
    - A word-scrub manifesto (§6.5), followed by an evidence grid of the four attack results from
      `npm run attack`, each with its on-chain rejection and a link to `/proof`.
-   - The grid is asymmetric: one large cell for the keeper-key attack, three small cells.
+   - The grid is asymmetric: one large cell for the agent-key attack, three small cells.
 8. **What can still go wrong:** a spec grid of risks in Mono with plain answers. It is grouped
    into 3 clusters (venue, oracle, operator) and has no row borders.
 9. **Footer:**
@@ -440,7 +440,7 @@ All components are sharp-cornered (radius 0) and use only `--t`, `--f`, Dim (non
 All visible strings come from `COPY.md`. Change the wording there first, then in the code.
 
 - The copy is plain, specific and short. It names the mechanism, never the hype.
-  Good: "The keeper can trade. The contract decides where money goes."
+  Good: "The agent can trade. The contract decides where money goes."
 - Numbers are real (live from chain or Hyperliquid) or explicitly labeled as backtest.
 - Banned:
   - em and en dashes

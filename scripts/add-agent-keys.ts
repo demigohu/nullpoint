@@ -1,9 +1,9 @@
-// One-time, from the owner's laptop: create restricted keys for the keeper host and store them in ../.env.
-//   KEEPER_*  function-call key on keeper.<owner>, may only call the vault contract
+// One-time, from the owner's laptop: create restricted keys for the agent host and store them in ../.env.
+//   AGENT_*  function-call key on agent.<owner>, may only call the vault contract
 //   SOLVER_*  testnet only: function-call key on <owner>, may only call the mock verifier's
 //             solver_credit / execute_intents (the mock 1Click solver)
 // Neither is a full-access key, so a leaked VPS can't move NEAR or call anything else.
-//   node add-keeper-keys.ts [--network testnet|mainnet]
+//   node add-agent-keys.ts [--network testnet|mainnet]
 import { spawnSync } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
 import { generateKey } from "near-kit";
@@ -26,5 +26,7 @@ function addKey(account: string, contract: string, methods: string, signWith: st
   console.log(`${envPrefix}: ${key.publicKey} on ${account} -> ${contract}${methods ? ` (${methods})` : " (any method)"}`);
 }
 
-addKey(`keeper.${OWNER}`, `vault.${OWNER}`, "", "sign-with-legacy-keychain", "KEEPER");
+// The testnet account predates the keeper -> agent rename; mainnet uses agent.<owner>.
+const AGENT_ACCOUNT = network === "mainnet" ? `agent.${OWNER}` : `keeper.${OWNER}`;
+addKey(AGENT_ACCOUNT, `vault.${OWNER}`, "", "sign-with-legacy-keychain", "AGENT");
 if (network === "testnet") addKey(OWNER, `verifier.${OWNER}`, "solver_credit, execute_intents", "sign-with-keychain", "SOLVER");
