@@ -7,9 +7,15 @@ export const RPCS = {
 
 export type Network = keyof typeof RPCS;
 
+/** NEAR_RPC_URLS (comma-separated, server-side only) is tried before the public endpoints. */
+const endpoints = (network: Network) => {
+  const extra = typeof process !== "undefined" ? (process.env?.NEAR_RPC_URLS ?? "").split(",").map((u) => u.trim()).filter(Boolean) : [];
+  return [...new Set([...extra, ...RPCS[network]])];
+};
+
 export async function rpc(network: Network, method: string, params: object): Promise<any> {
   let last: unknown;
-  for (const url of RPCS[network]) {
+  for (const url of endpoints(network)) {
     try {
       const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
       const body = await res.json().catch(() => null);
