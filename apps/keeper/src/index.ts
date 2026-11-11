@@ -32,6 +32,8 @@ const PRICE_SAMPLE_USDC = 1_000_000n; // quote ~1 USDC worth of each asset for p
 const ROTATION_COST_BPS = 40; // swap (~30 bps) + closing and opening shorts (~2 x 4.5 bps)
 const STRATEGIST_EVERY_MS = Number(process.env.STRATEGIST_INTERVAL_MIN ?? 30) * 60_000;
 const RECORD_HOLD_EVERY_MS = 3 * 3_600_000; // HOLDs are recorded on-chain at most this often
+// HOLDs are only recorded on-chain every few hours, so the cadence is tracked in memory too.
+let lastStrategistRunMs = 0;
 const DEMO_FUNDING: Record<string, number> = JSON.parse(process.env.DEMO_FUNDING ?? "{}");
 const LIMITS_USED = { ...LIMITS, ...(process.env.DEMO_MIN_HOLD_HOURS ? { minHoldHours: Number(process.env.DEMO_MIN_HOLD_HOURS) } : {}) };
 
@@ -160,7 +162,8 @@ async function cycle() {
 
   // 2. strategist
   let p = plan(await view<[number, OnChainDecision][]>(NET, VAULT, "get_decisions", { from: "0", limit: 500 }).then((d) => d.map(([, x]) => x)), nowMs);
-  if (nowMs - p.lastStrategistMs >= STRATEGIST_EVERY_MS) {
+  if (nowMs - Math.max(p.lastStrategistMs, lastStrategistRunMs) >= STRATEGIST_EVERY_MS) {
+    lastStrategistRunMs = nowMs;
     const mkts = await markets(meta, ctxs);
     log("funding 8h APR:", mkts.map((m) => `${m.symbol} ${m.fundingApr8h.toFixed(1)}% (OI $${(m.openInterestUsd / 1e6).toFixed(1)}M)`).join(", "));
     const ctx: Context = { active: p.target, heldSinceMs: p.heldSinceMs, nowMs, rotationsLast24h: p.rotationsLast24h, rotationCostBps: ROTATION_COST_BPS, allowlist: ASSETS.map((a) => a.symbol) };
