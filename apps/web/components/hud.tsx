@@ -1,22 +1,20 @@
 "use client";
-// Global chrome (DESIGN.md §4): wordmark, links, mode switcher, network, wallet, pause, the 7-bit
-// scroll readout and the Δ readout. Identical on every page.
+// Global chrome (DESIGN.md §4): wordmark, links, network, the account menu (wallet, test USDC,
+// colors, animations), the 7-bit scroll readout and the Δ readout. Identical on every page.
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { motion, useMotionValueEvent, useReducedMotion, useScroll, useSpring } from "motion/react";
-import { useNearWallet } from "near-connect-hooks";
-import { Pause, Play } from "@phosphor-icons/react";
+import { useMotionValueEvent, useScroll } from "motion/react";
 import type { Network } from "@nullpoint/core";
 import { NET_COOKIE } from "@/lib/config";
-import { MODES, setMode, storedPreview, type Mode } from "@/lib/modes";
+import type { Mode } from "@/lib/modes";
+import { AccountMenu, seg } from "@/components/account-menu";
 
 const LINKS = [
   { href: "/app", label: "Vault" },
   { href: "/dashboard", label: "Dashboard" },
   { href: "/proof", label: "Proof" },
 ];
-const ORDER: Mode[] = ["btc", "eth", "near", "park"];
 
 export function Wordmark({ className = "" }: { className?: string }) {
   return (
@@ -27,87 +25,20 @@ export function Wordmark({ className = "" }: { className?: string }) {
   );
 }
 
-/** HUD controls lean toward a fine pointer (DESIGN.md §4). */
-function Magnetic({ children }: { children: React.ReactNode }) {
-  const reduce = useReducedMotion();
-  const x = useSpring(0, { stiffness: 300, damping: 30 });
-  const y = useSpring(0, { stiffness: 300, damping: 30 });
-  return (
-    <motion.div
-      style={{ x, y }}
-      onPointerMove={(e) => {
-        if (reduce || e.pointerType !== "mouse") return;
-        const r = e.currentTarget.getBoundingClientRect();
-        x.set((e.clientX - r.left - r.width / 2) * 0.25);
-        y.set((e.clientY - r.top - r.height / 2) * 0.35);
-      }}
-      onPointerLeave={() => {
-        x.set(0);
-        y.set(0);
-      }}
-    >
-      {children}
-    </motion.div>
-  );
-}
-
-const seg = (on: boolean) => `h-[var(--hud)] px-3 font-mono text-[12px] tracking-[0.12em] uppercase ${on ? "bg-tc text-fc" : "text-tc"}`;
-
 export type HudLive = { symbol: string | null; delta: number; paused: boolean } | null;
 
 export function Hud({ network, liveMode, live }: { network: Network; liveMode: Mode; live: HudLive }) {
   const path = usePathname();
   const router = useRouter();
-  const { signedAccountId, signIn, signOut, loading } = useNearWallet();
-  const [mode, setLocal] = useState<Mode>(liveMode);
-  const [paused, setPaused] = useState(false);
   const [menu, setMenu] = useState(false);
-  const [announce, setAnnounce] = useState("");
-
-  // Restore a session preview and the pause choice after hydration.
-  useEffect(() => {
-    document.documentElement.dataset.live = liveMode;
-    const p = storedPreview();
-    if (p && p !== liveMode) pick(p, false);
-    else pick(null, false);
-    setPaused(document.documentElement.dataset.paused === "1");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveMode]);
 
   useEffect(() => setMenu(false), [path]);
-
-  function pick(m: Mode | null, say = true) {
-    setMode(m);
-    const next = m ?? liveMode;
-    setLocal(next);
-    if (say) setAnnounce(next === liveMode ? `Back to the live vault: ${MODES[next].label}` : `Previewing ${MODES[next].label}`);
-  }
-
-  const togglePause = () => {
-    const next = !paused;
-    setPaused(next);
-    document.documentElement.dataset.paused = next ? "1" : "0";
-    try {
-      localStorage.setItem("np_paused", next ? "1" : "0");
-    } catch {}
-  };
 
   const setNet = (n: Network) => {
     document.cookie = `${NET_COOKIE}=${n}; path=/; max-age=31536000; samesite=lax`;
     router.refresh();
   };
 
-  const account = signedAccountId && (signedAccountId.length > 22 ? `${signedAccountId.slice(0, 10)}…${signedAccountId.slice(-8)}` : signedAccountId);
-
-  const modes = (
-    <div role="group" aria-label="Color mode" className="flex border border-tc bg-fc">
-      {ORDER.map((m) => (
-        <button key={m} onClick={() => pick(m === liveMode ? null : m)} aria-pressed={mode === m} className={seg(mode === m)} title={m === liveMode ? "Live vault" : "Preview"}>
-          {MODES[m].label}
-        </button>
-      ))}
-    </div>
-  );
   const net = (
     <div role="group" aria-label="Network" className="flex border border-tc bg-fc">
       {(["testnet", "mainnet"] as const).map((n) => (
@@ -135,24 +66,7 @@ export function Hud({ network, liveMode, live }: { network: Network; liveMode: M
             </div>
             {net}
           </div>
-          <Magnetic>{modes}</Magnetic>
-          <div className="hidden sm:block">
-            {account ? (
-              <button onClick={() => signOut()} className={`${seg(false)} border border-tc bg-fc normal-case tracking-normal`} title="Disconnect">
-                {account}
-              </button>
-            ) : (
-              <button onClick={() => signIn()} disabled={loading} className={`${seg(true)} border border-tc`}>
-                Connect
-              </button>
-            )}
-          </div>
-          <Magnetic>
-            <button onClick={togglePause} aria-pressed={paused} aria-label={paused ? "Play animations" : "Pause animations"} className={`${seg(false)} flex items-center gap-1.5 border border-tc bg-fc`}>
-              {paused ? <Play weight="bold" size={12} /> : <Pause weight="bold" size={12} />}
-              {paused ? "play" : "pause"}
-            </button>
-          </Magnetic>
+          <AccountMenu network={network} liveMode={liveMode} />
           <button onClick={() => setMenu(true)} className={`${seg(false)} border border-tc bg-fc lg:hidden`} aria-expanded={menu} aria-controls="menu">
             Menu
           </button>
@@ -170,20 +84,12 @@ export function Hud({ network, liveMode, live }: { network: Network; liveMode: M
               {l.label}
             </Link>
           ))}
-          <div className="mt-auto flex flex-wrap gap-2">
-            {net}
-            {account ? (
-              <button onClick={() => signOut()} className={`${seg(false)} border border-tc normal-case tracking-normal`}>{account} · disconnect</button>
-            ) : (
-              <button onClick={() => signIn()} className={`${seg(true)} border border-tc`}>Connect</button>
-            )}
-          </div>
+          <div className="mt-auto">{net}</div>
         </div>
       )}
 
       <Bits />
       {live && path !== "/" && <Delta live={live} />}
-      <p aria-live="polite" className="sr-only">{announce}</p>
     </>
   );
 }

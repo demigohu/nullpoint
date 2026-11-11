@@ -118,6 +118,31 @@ body {
 .btn:disabled { cursor: not-allowed; background: var(--f); color: var(--dim); border-color: var(--dim); }
 .btn:disabled::after { display: none; }
 
+/* Account dropdown: scales from the button's corner (DESIGN.md §4). */
+.menu {
+  transform-origin: top right;
+  transition: opacity 150ms ease-out, scale 150ms ease-out;
+  @starting-style { opacity: 0; scale: 0.97; }
+}
+
+/* Transaction review (components/tx-dialog.tsx): native modal, solid ground, centered. */
+dialog.tx {
+  margin: auto;
+  width: min(640px, calc(100vw - 2 * var(--pad)));
+  max-height: calc(100dvh - 2 * var(--pad));
+  overflow-y: auto;
+  background: var(--f);
+  color: var(--t);
+  border: 1px solid var(--t);
+  transition: opacity 200ms ease-out, scale 200ms ease-out, display 200ms allow-discrete, overlay 200ms allow-discrete;
+  @starting-style { opacity: 0; scale: 0.97; }
+}
+dialog.tx::backdrop { background: color-mix(in srgb, var(--f) 80%, transparent); }
+@media (prefers-reduced-motion: reduce) {
+  .menu, dialog.tx { transition: opacity 150ms ease-out; }
+  @starting-style { .menu, dialog.tx { scale: 1; } }
+}
+
 /* Glossary term (COPY.md §G). */
 .term {
   text-decoration: underline dotted 1px;

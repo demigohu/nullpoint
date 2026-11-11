@@ -1,55 +1,54 @@
 "use client";
-// Deposit and withdraw. Every action says what will happen before you sign, shows progress while it
-// runs, and leaves a receipt with the transaction (COPY.md "/app", DESIGN.md §5 Explainer).
+// Deposit and withdraw. Each action opens a review that simulates it against the chain (the same
+// checks the contract runs), then the wallet signs, then a result read back from the chain
+// (COPY.md "/app", DESIGN.md §5 Explainer). Test USDC lives in the account menu.
 import { useCallback, useEffect, useState } from "react";
 import { useNearWallet } from "near-connect-hooks";
 import type { NetConfig } from "@/lib/config";
 import { links } from "@/lib/config";
 import { ScrambleText } from "@/components/scramble-text";
 import { Term } from "@/components/term";
+import { TxDialog, type TxSpec } from "@/components/tx-dialog";
 
 type Withdrawal = { id: number; account: string; shares: string; usdc: string; status: string; signed_id: number | null; signedMs?: number };
-type Receipt = { ok: boolean; title: string; next?: string; hash?: string; reason?: string };
+type ChainState = { paused: boolean; total_shares: string; snapshot: { nav: string; ms: number } | null; params: { max_tvl: string; max_nav_age_s: number }; withdrawal_count: number };
 
 const STUCK_MS = 10 * 60_000; // only then offer the self-serve fallback
 const TGAS = (n: number) => String(n * 1e12);
-const num = (raw: string | bigint | number, d = 6) => (Number(raw) / 10 ** d).toLocaleString(undefined, { maximumFractionDigits: 2 });
-const usd = (v: number) => v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmt = (raw: bigint | string | number, d = 6) => (Number(raw) / 10 ** d).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const ago = (s: number) => (s < 90 ? `${s}s ago` : `${Math.round(s / 60)} min ago`);
+// Max fee at NEAR's minimum gas price (0.0001 NEAR per Tgas); unused gas is refunded.
+const fee = (tgas: number) => `up to ${tgas} Tgas, at most ${(tgas * 0.0001).toFixed(3)} NEAR; unused gas is refunded`;
 
-/** Wallet and contract errors in plain words (COPY.md "Errors"); the raw reason stays visible. */
-function explain(e: unknown): Receipt {
-  const raw = (e as Error)?.message ?? String(e);
-  if (/reject|cancel|denied|closed/i.test(raw)) return { ok: false, title: "You cancelled in your wallet. Nothing was sent." };
-  if (/fetch|network|timeout/i.test(raw)) return { ok: false, title: "Couldn't reach NEAR. Your funds didn't move. Try again.", reason: raw.slice(0, 200) };
-  const panic = raw.match(/panicked at[^:]*: ?(.*)|Smart contract panicked: (.*)|ExecutionError\W+(.*)/);
-  return { ok: false, title: "The vault rejected this transaction.", reason: (panic?.slice(1).find(Boolean) ?? raw).slice(0, 200) };
-}
-
-export function VaultPanel({ net, sharePrice, navAgeS, maxNavAgeS, withdrawalCount }: {
-  net: NetConfig; sharePrice: number; navAgeS: number | null; maxNavAgeS: number; withdrawalCount: number;
-}) {
-  const { signedAccountId, signIn, viewFunction, callFunctionRaw } = useNearWallet();
-  const [usdc, setUsdc] = useState<string | null>(null);
-  const [shares, setShares] = useState<string | null>(null);
+export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawalCount: number }) {
+  const { signedAccountId, signIn, viewFunction } = useNearWallet();
+  const [usdc, setUsdc] = useState<bigint | null>(null);
+  const [shares, setShares] = useState<bigint | null>(null);
+  const [chain, setChain] = useState<ChainState | null>(null);
   const [mine, setMine] = useState<Withdrawal[]>([]);
   const [tab, setTab] = useState<"deposit" | "withdraw">("deposit");
   const [amount, setAmount] = useState("");
   const [withdrawShares, setWithdrawShares] = useState("");
-  const [busy, setBusy] = useState<string | null>(null);
-  const [receipt, setReceipt] = useState<Receipt | null>(null);
-  const navStale = navAgeS === null || navAgeS > maxNavAgeS;
+  const [tx, setTx] = useState<TxSpec | null>(null);
   const L = links(net);
+
+  const read = useCallback(async () => {
+    const [b, s, st] = await Promise.all([
+      viewFunction({ contractId: net.usdc, method: "ft_balance_of", args: { account_id: signedAccountId } }) as Promise<string>,
+      viewFunction({ contractId: net.vault, method: "get_shares", args: { account_id: signedAccountId } }) as Promise<string>,
+      viewFunction({ contractId: net.vault, method: "get_state", args: {} }) as Promise<ChainState>,
+    ]);
+    return { usdc: BigInt(b), shares: BigInt(s), state: st };
+  }, [viewFunction, net, signedAccountId]);
 
   const refresh = useCallback(async () => {
     if (!signedAccountId) return;
-    const [b, s, w] = await Promise.all([
-      viewFunction({ contractId: net.usdc, method: "ft_balance_of", args: { account_id: signedAccountId } }),
-      viewFunction({ contractId: net.vault, method: "get_shares", args: { account_id: signedAccountId } }),
-      viewFunction({ contractId: net.vault, method: "get_withdrawals", args: { from: "0", limit: Math.max(withdrawalCount + 20, 50) } }),
-    ]);
-    setUsdc(b as string);
-    setShares(s as string);
-    const own = (w as [number, Omit<Withdrawal, "id">][]).map(([id, x]) => ({ id, ...x })).filter((x) => x.account === signedAccountId).reverse();
+    const r = await read();
+    setUsdc(r.usdc);
+    setShares(r.shares);
+    setChain(r.state);
+    const w = (await viewFunction({ contractId: net.vault, method: "get_withdrawals", args: { from: "0", limit: Math.max(r.state.withdrawal_count, withdrawalCount) + 20 } })) as [number, Omit<Withdrawal, "id">][];
+    const own = w.map(([id, x]) => ({ id, ...x })).filter((x) => x.account === signedAccountId).reverse();
     // When the payout was signed, so a stuck one can offer the self-serve fallback.
     await Promise.all(
       own.filter((x) => x.status === "signed" && x.signed_id !== null).map(async (x) => {
@@ -58,10 +57,13 @@ export function VaultPanel({ net, sharePrice, navAgeS, maxNavAgeS, withdrawalCou
       }),
     );
     setMine(own);
-  }, [signedAccountId, viewFunction, net, withdrawalCount]);
+  }, [signedAccountId, viewFunction, net, withdrawalCount, read]);
 
   useEffect(() => {
-    refresh().catch((e) => setReceipt(explain(e)));
+    refresh().catch(() => {});
+    const on = () => refresh().catch(() => {});
+    window.addEventListener("np:balances", on); // test USDC from the account menu, finished transactions
+    return () => window.removeEventListener("np:balances", on);
   }, [refresh]);
 
   // The keeper settles withdrawals on its own; keep the list live while any is in flight.
@@ -71,22 +73,6 @@ export function VaultPanel({ net, sharePrice, navAgeS, maxNavAgeS, withdrawalCou
     const t = setInterval(() => refresh().catch(() => {}), 10_000);
     return () => clearInterval(t);
   }, [inFlight, refresh]);
-
-  const run = async (label: string, call: Parameters<typeof callFunctionRaw>[0], ok: Omit<Receipt, "ok" | "hash">) => {
-    setBusy(label);
-    setReceipt(null);
-    try {
-      const r = await callFunctionRaw(call);
-      const failure = (r.receipts_outcome ?? []).map((o) => (o.outcome.status as { Failure?: unknown }).Failure).find(Boolean);
-      if (failure) throw new Error(JSON.stringify(failure));
-      setReceipt({ ok: true, ...ok, hash: r.transaction_outcome?.id ?? r.transaction?.hash });
-      await refresh();
-    } catch (e) {
-      setReceipt(explain(e));
-    } finally {
-      setBusy(null);
-    }
-  };
 
   if (!signedAccountId) {
     return (
@@ -98,32 +84,141 @@ export function VaultPanel({ net, sharePrice, navAgeS, maxNavAgeS, withdrawalCou
     );
   }
 
-  const units = (v: string, d = net.usdcDecimals) => BigInt(Math.round(Number(v) * 10 ** d)).toString();
-  const shareValue = shares ? (Number(shares) / 1e6) * sharePrice : 0;
-  const balance = usdc === null ? null : Number(usdc) / 1e6;
-  const depositAmount = Number(amount) || 0;
-  const tooMuch = balance !== null && depositAmount > balance;
-  const outShares = Number(withdrawShares) || 0;
-  const outUsdc = outShares * sharePrice;
+  const priceOf = (st: ChainState | null) => (st?.snapshot && BigInt(st.total_shares) > 0n ? Number(st.snapshot.nav) / Number(st.total_shares) : 1);
+  const sharePrice = priceOf(chain);
+  const units = (v: string) => BigInt(Math.round(Number(v) * 10 ** net.usdcDecimals));
+  const depositUnits = Number(amount) > 0 ? units(amount) : 0n;
+  const outUnits = Number(withdrawShares) > 0 ? units(withdrawShares) : 0n;
+
+  const depositSpec = (): TxSpec => ({
+    title: `Deposit ${fmt(depositUnits)} USDC into the vault`,
+    confirm: "Sign in wallet",
+    call: { contractId: net.usdc, method: "ft_transfer_call", args: { receiver_id: net.vault, amount: depositUnits.toString(), msg: "" }, gas: TGAS(100), deposit: "1" },
+    signs: [
+      ["Contract", `${net.usdc} (the USDC token)`],
+      ["Method", "ft_transfer_call: send USDC to the vault and tell it to mint your shares"],
+      ["Arguments", `receiver ${net.vault}, amount ${depositUnits} (${fmt(depositUnits)} USDC, 6 decimals)`],
+      ["Attached", "1 yoctoNEAR (0.000000000000000000000001 NEAR), required by the token standard"],
+      ["Network fee", fee(100)],
+    ],
+    notes: [
+      "If the vault refuses the deposit, the token contract sends your USDC back within the same transaction.",
+      "After it lands, the keeper hedges your USDC in its next cycle: a short on Hyperliquid first, then the coin through NEAR Intents.",
+    ],
+    simulate: async () => {
+      // Same math and limits as the vault's ft_on_transfer.
+      const { usdc, shares, state } = await read();
+      const nav = BigInt(state.snapshot?.nav ?? 0), total = BigInt(state.total_shares);
+      const out = total === 0n ? depositUnits : nav > 0n ? (depositUnits * total) / nav : 0n;
+      const age = state.snapshot ? Math.round((Date.now() - state.snapshot.ms) / 1000) : Infinity;
+      const p = priceOf(state);
+      return {
+        checks: [
+          { label: "You have the USDC", ok: usdc >= depositUnits, detail: `Wallet holds ${fmt(usdc)} USDC.` },
+          { label: "The vault is open", ok: !state.paused, detail: state.paused ? "The vault is paused; deposits are refused." : "Not paused." },
+          { label: "The share price is fresh", ok: age <= state.params.max_nav_age_s, detail: Number.isFinite(age) ? `Updated ${ago(age)}; the contract accepts up to ${state.params.max_nav_age_s / 60} minutes.` : "No share price recorded yet." },
+          { label: "Under the vault's cap", ok: nav + depositUnits <= BigInt(state.params.max_tvl), detail: `Deposits after this: $${fmt(nav + depositUnits)} of $${fmt(state.params.max_tvl)}.` },
+          { label: "You receive shares", ok: out > 0n, detail: `About ${fmt(out)} shares at $${p.toFixed(4)} each.` },
+        ],
+        changes: [
+          { label: "Wallet USDC", before: fmt(usdc), after: fmt(usdc - depositUnits) },
+          { label: "Your shares", before: fmt(shares), after: fmt(shares + out) },
+          { label: "Your value", before: `$${fmt(Number(shares) * p, 6)}`, after: `$${fmt(Number(shares + out) * p, 6)}` },
+        ],
+      };
+    },
+    result: async () => {
+      const before = shares ?? 0n;
+      const r = await read();
+      return {
+        title: `Deposited. You received ${fmt(r.shares - before)} shares.`,
+        changes: [
+          { label: "Wallet USDC", before: fmt(usdc ?? 0n), after: fmt(r.usdc) },
+          { label: "Your shares", before: fmt(before), after: fmt(r.shares) },
+        ],
+        next: "Next: the keeper hedges it in its next cycle. Watch it on the dashboard.",
+      };
+    },
+  });
+
+  const withdrawSpec = (): TxSpec => ({
+    title: `Withdraw ${fmt(outUnits)} shares`,
+    confirm: "Sign in wallet",
+    call: { contractId: net.vault, method: "request_withdraw", args: { shares: outUnits.toString() }, gas: TGAS(30) },
+    signs: [
+      ["Contract", `${net.vault} (the vault)`],
+      ["Method", "request_withdraw: hand shares back and queue a USDC payout to you"],
+      ["Arguments", `shares ${outUnits} (${fmt(outUnits)} shares, 6 decimals)`],
+      ["Attached", "nothing"],
+      ["Network fee", fee(30)],
+    ],
+    notes: [
+      "Your shares leave your balance now. The keeper prices them at the share price of the moment it processes the request, usually within 1-3 minutes, and NEAR's MPC network signs the USDC payout to your wallet.",
+      "You don't sign anything else. If the payout waits more than 10 minutes, a button lets you finish it yourself.",
+    ],
+    simulate: async () => {
+      // Same check as the vault's request_withdraw.
+      const { shares, state } = await read();
+      const p = priceOf(state);
+      return {
+        checks: [
+          { label: "You hold the shares", ok: outUnits > 0n && outUnits <= shares, detail: `You hold ${fmt(shares)} shares.` },
+          { label: "The vault is running", ok: !state.paused, detail: state.paused ? "The vault is paused; the payout waits until it resumes." : "Not paused, so the keeper will process it." },
+        ],
+        changes: [
+          { label: "Your shares", before: fmt(shares), after: fmt(shares - outUnits) },
+          { label: "USDC to your wallet", before: "0.00", after: `about ${fmt(Number(outUnits) * p, 6)}` },
+        ],
+      };
+    },
+    result: async () => {
+      const w = (await viewFunction({ contractId: net.vault, method: "get_withdrawals", args: { from: "0", limit: 500 } })) as [number, Withdrawal][];
+      const last = w.filter(([, x]) => x.account === signedAccountId).at(-1);
+      return {
+        title: `Withdrawal #${last?.[0] ?? "?"} queued for ${fmt(outUnits)} shares.`,
+        next: "The keeper processes it next, and the USDC arrives in your wallet. Follow each step under Your withdrawals.",
+      };
+    },
+  });
+
+  const finishSpec = (w: Withdrawal): TxSpec => ({
+    title: `Finish withdrawal #${w.id} yourself`,
+    confirm: "Sign in wallet",
+    call: { contractId: net.vault, method: "execute_withdraw", args: { id: w.id }, gas: TGAS(200) },
+    signs: [
+      ["Contract", `${net.vault} (the vault)`],
+      ["Method", "execute_withdraw: submit the payout NEAR's MPC network already signed"],
+      ["Arguments", `id ${w.id}`],
+      ["Attached", "nothing"],
+      ["Network fee", fee(200)],
+    ],
+    notes: ["Anyone can submit a signed payout; it can only pay you. The keeper normally does this for you."],
+    simulate: async () => ({
+      checks: [{ label: "The payout is signed", ok: w.status === "signed", detail: `Signed for ${fmt(w.usdc)} USDC to ${w.account}.` }],
+      changes: [{ label: "Wallet USDC", before: fmt(usdc ?? 0n), after: fmt((usdc ?? 0n) + BigInt(w.usdc)) }],
+    }),
+    result: async () => ({ title: `Withdrawal #${w.id} paid: ${fmt(w.usdc)} USDC is in your wallet.` }),
+  });
+
   const fieldClass = "num w-full border border-tc bg-fc px-4 py-3 text-[clamp(2rem,3.4vw,3.4rem)] leading-none tracking-[-0.03em] outline-none placeholder:text-dim focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tc";
+  const balanceHint = usdc === 0n ? (net.network === "testnet" ? " Your wallet has none yet: get test USDC from your account menu (top right)." : " Your wallet has none yet.") : "";
 
   return (
     <div className="grid gap-[var(--pad)]">
       <div className="panel p-[var(--pad)]">
         <p className="chip">Your value</p>
         <p className="num mt-3 text-[clamp(3rem,7vw,7rem)] font-bold leading-[0.9] tracking-[-0.04em]">
-          $<ScrambleText text={shares === null ? "…" : usd(shareValue)} />
+          $<ScrambleText text={shares === null ? "…" : fmt(Number(shares) * sharePrice, 6)} />
         </p>
         <p className="num mt-3 text-[14px]">
-          {shares === null ? "…" : num(shares)} <Term k="share">shares</Term> at ${sharePrice.toFixed(4)} each · wallet {balance === null ? "…" : usd(balance)} USDC
+          {shares === null ? "…" : fmt(shares)} <Term k="share">shares</Term> at ${sharePrice.toFixed(4)} each · wallet {usdc === null ? "…" : fmt(usdc)} USDC
         </p>
       </div>
 
       <div className="panel">
         <div role="tablist" aria-label="Action" className="grid grid-cols-2 border-b border-tc">
           {(["deposit", "withdraw"] as const).map((t) => (
-            <button key={t} role="tab" aria-selected={tab === t} onClick={() => { setTab(t); setReceipt(null); }}
-              className={`h-12 font-mono text-[13px] uppercase tracking-[0.2em] ${tab === t ? "bg-tc text-fc" : ""}`}>
+            <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)} className={`h-12 font-mono text-[13px] uppercase tracking-[0.2em] ${tab === t ? "bg-tc text-fc" : ""}`}>
               {t}
             </button>
           ))}
@@ -131,90 +226,33 @@ export function VaultPanel({ net, sharePrice, navAgeS, maxNavAgeS, withdrawalCou
 
         <div className="p-[var(--pad)]">
           {tab === "deposit" ? (
-            <form
-              className="grid gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                run("deposit", { contractId: net.usdc, method: "ft_transfer_call", args: { receiver_id: net.vault, amount: units(amount), msg: "" }, gas: TGAS(100), deposit: "1" }, {
-                  title: `Deposited. ${amount} USDC is in the vault and about ${num(depositAmount / sharePrice, 0)} shares are in your account.`,
-                  next: "Next, the keeper hedges it: a short on Hyperliquid, then the coin through NEAR Intents.",
-                });
-              }}
-            >
+            <form className="grid gap-2" onSubmit={(e) => { e.preventDefault(); setTx(depositSpec()); }}>
               <div className="flex items-baseline justify-between gap-3">
                 <label htmlFor="dep" className="chip">Amount (USDC)</label>
-                <button type="button" onClick={() => balance !== null && setAmount(String(balance))} className="font-mono text-[12px] underline underline-offset-2">
-                  Balance {balance === null ? "…" : usd(balance)} · MAX
+                <button type="button" onClick={() => usdc !== null && setAmount(String(Number(usdc) / 1e6))} className="font-mono text-[12px] underline underline-offset-2">
+                  Balance {usdc === null ? "…" : fmt(usdc)} · MAX
                 </button>
               </div>
               <input id="dep" inputMode="decimal" autoComplete="off" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" className={fieldClass} aria-describedby="dep-help" />
-              <p id="dep-help" className={`text-[14px] leading-[1.5] ${tooMuch ? "text-alarm" : ""}`}>
-                {navStale
-                  ? "Deposits pause while the share price is more than 10 minutes old, so nobody buys in at an outdated price. The keeper refreshes it every cycle."
-                  : tooMuch
-                    ? `Your wallet has ${usd(balance!)} USDC. Lower the amount${net.network === "testnet" ? " or get test USDC below" : ""}.`
-                    : depositAmount > 0
-                      ? `You'll sign 1 transaction that sends ${amount} USDC to the vault contract (${net.vault}). You receive about ${num(depositAmount / sharePrice, 0)} shares at $${sharePrice.toFixed(4)} each.`
-                      : "Enter how much USDC to put in. You get shares priced at the vault's current share price."}
+              <p id="dep-help" className="text-[14px] leading-[1.5]">
+                You get <Term k="share">shares</Term> at the current share price. Next you&apos;ll see a review of exactly what happens before your wallet asks to sign.{balanceHint}
               </p>
-              <button disabled={!depositAmount || tooMuch || !!busy || navStale} className="btn mt-3 w-full" data-label={`Deposit ${amount || 0} USDC`}>
-                {busy === "deposit" ? "Confirm in your wallet…" : `Deposit ${amount || 0} USDC`}
-              </button>
+              <button disabled={!depositUnits} className="btn mt-3 w-full" data-label="Review deposit">Review deposit</button>
             </form>
           ) : (
-            <form
-              className="grid gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                run("withdraw", { contractId: net.vault, method: "request_withdraw", args: { shares: units(withdrawShares) }, gas: TGAS(30) }, {
-                  title: `Withdrawal requested for ${withdrawShares} shares.`,
-                  next: "The keeper frees the USDC and the contract pays your wallet, usually within 1-3 minutes. Track it below.",
-                });
-              }}
-            >
+            <form className="grid gap-2" onSubmit={(e) => { e.preventDefault(); setTx(withdrawSpec()); }}>
               <div className="flex items-baseline justify-between gap-3">
                 <label htmlFor="wd" className="chip">Shares to withdraw</label>
-                <button type="button" onClick={() => shares && setWithdrawShares(String(Number(shares) / 1e6))} className="font-mono text-[12px] underline underline-offset-2">
-                  You hold {shares === null ? "…" : num(shares)} · MAX
+                <button type="button" onClick={() => shares !== null && setWithdrawShares(String(Number(shares) / 1e6))} className="font-mono text-[12px] underline underline-offset-2">
+                  You hold {shares === null ? "…" : fmt(shares)} · MAX
                 </button>
               </div>
               <input id="wd" inputMode="decimal" autoComplete="off" value={withdrawShares} onChange={(e) => setWithdrawShares(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" className={fieldClass} aria-describedby="wd-help" />
               <p id="wd-help" className="text-[14px] leading-[1.5]">
-                {outShares > 0
-                  ? `You'll sign 1 transaction asking the vault to buy back ${withdrawShares} shares, worth about $${usd(outUsdc)} at today's price. The keeper frees the USDC and the contract sends it to your wallet, usually within 1-3 minutes.`
-                  : "Enter how many shares to sell back to the vault. USDC arrives in your wallet automatically."}
+                {outUnits > 0n ? `Worth about $${fmt(Number(outUnits) * sharePrice, 6)} at today's price. ` : ""}USDC arrives in your wallet automatically, usually within 1-3 minutes. You&apos;ll see a review first.
               </p>
-              <button disabled={!outShares || !!busy || (shares !== null && outShares * 1e6 > Number(shares))} className="btn mt-3 w-full" data-label={`Withdraw $${usd(outUsdc)}`}>
-                {busy === "withdraw" ? "Confirm in your wallet…" : `Withdraw $${usd(outUsdc)}`}
-              </button>
+              <button disabled={!outUnits} className="btn mt-3 w-full" data-label="Review withdrawal">Review withdrawal</button>
             </form>
-          )}
-
-          {receipt && (
-            <div role="status" className={`mt-6 border p-4 text-[14px] leading-[1.5] ${receipt.ok ? "border-tc" : "border-alarm text-alarm"}`}>
-              <p className="font-bold">{receipt.title}</p>
-              {receipt.next && <p className="mt-1">{receipt.next}</p>}
-              {receipt.reason && <p className="num mt-2 break-all text-[12px]">Reason: {receipt.reason}</p>}
-              {receipt.hash && (
-                <a href={L.tx(receipt.hash)} target="_blank" rel="noreferrer" className="num mt-2 inline-block break-all text-[12px] underline underline-offset-2">
-                  Transaction {receipt.hash.slice(0, 10)}…{receipt.hash.slice(-6)} ↗
-                </a>
-              )}
-            </div>
-          )}
-
-          {net.network === "testnet" && (
-            <div className="mt-8 border-t border-tc pt-4">
-              <button
-                onClick={() => run("faucet", { contractId: net.usdc, method: "mint", args: { account_id: signedAccountId, amount: "100000000" }, gas: TGAS(30) }, { title: "100 test USDC added to your wallet." })}
-                disabled={!!busy}
-                className="btn btn-ghost"
-                data-label="Get 100 test USDC"
-              >
-                {busy === "faucet" ? "Confirm in your wallet…" : "Get 100 test USDC"}
-              </button>
-              <p className="mt-2 text-[13px] leading-[1.5]">Mints 100 test USDC to your wallet. It has no real value. 1 transaction.</p>
-            </div>
           )}
         </div>
       </div>
@@ -225,31 +263,33 @@ export function VaultPanel({ net, sharePrice, navAgeS, maxNavAgeS, withdrawalCou
           <p className="mt-4 text-[14px]">No withdrawals yet. Requests show up here with each step as it happens.</p>
         ) : (
           <ul className="mt-4">
-            {mine.map((w) => <WithdrawalRow key={w.id} w={w} busy={!!busy} onFinish={() => run(`exec${w.id}`, { contractId: net.vault, method: "execute_withdraw", args: { id: w.id }, gas: TGAS(200) }, { title: "Withdrawal paid to your wallet." })} />)}
+            {mine.map((w) => <WithdrawalRow key={w.id} w={w} onFinish={() => setTx(finishSpec(w))} />)}
           </ul>
         )}
         <a href={L.account(net.vault)} target="_blank" rel="noreferrer" className="mt-6 inline-block font-mono text-[12px] underline underline-offset-2">
           Vault contract on NearBlocks ↗
         </a>
       </div>
+
+      <TxDialog net={net} spec={tx} onClose={() => setTx(null)} />
     </div>
   );
 }
 
 const STEPS = [
-  ["requested", "The vault recorded your request and fixed the price."],
-  ["signed", "NEAR's MPC network signed the payout. Anyone can now execute it."],
+  ["requested", "Your shares left your balance and the payout is queued."],
+  ["signed", "The keeper priced it at the share price, and NEAR's MPC network signed the payout."],
   ["paid", "USDC arrived in your wallet."],
 ] as const;
 
 /** Status track: one square bit per step (DESIGN.md §5). */
-function WithdrawalRow({ w, busy, onFinish }: { w: Withdrawal; busy: boolean; onFinish: () => void }) {
+function WithdrawalRow({ w, onFinish }: { w: Withdrawal; onFinish: () => void }) {
   const done = w.status === "done" ? 3 : w.status === "signed" ? 2 : 1;
   const stuck = w.status === "signed" && w.signedMs !== undefined && Date.now() - w.signedMs > STUCK_MS;
   return (
     <li className="border-t border-tc py-4">
       <p className="num text-[14px]">
-        #{w.id} · {num(w.shares)} shares{w.usdc !== "0" && ` → $${num(w.usdc)}`}
+        #{w.id} · {fmt(w.shares)} shares{w.usdc !== "0" && ` → $${fmt(w.usdc)}`}
         {w.status === "failed" && <span className="text-alarm"> · retrying</span>}
       </p>
       <ol className="mt-3 grid gap-2 sm:grid-cols-3">
@@ -269,8 +309,8 @@ function WithdrawalRow({ w, busy, onFinish }: { w: Withdrawal; busy: boolean; on
       </ol>
       {stuck && (
         <div className="mt-3 border border-alarm p-3 text-[13px] text-alarm">
-          <p>This is taking longer than usual. You can finish it yourself: 1 transaction that executes the payout the contract already signed.</p>
-          <button onClick={onFinish} disabled={busy} className="btn mt-3" data-label="Finish it myself">Finish it myself</button>
+          <p>This is taking longer than usual. You can finish it yourself: 1 transaction that submits the payout the contract already signed.</p>
+          <button onClick={onFinish} className="btn mt-3" data-label="Review and finish">Review and finish</button>
         </div>
       )}
     </li>

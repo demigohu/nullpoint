@@ -114,53 +114,61 @@ Alternatives considered:
 
 ## `/app` Vault (deposit and withdraw)
 
-Every action has three moments: **before you sign** (what will happen, in one or two lines),
-**while it runs** (status track), **after** (a receipt with the transaction link). Amounts in
-these strings are live.
+Every wallet transaction goes through one dialog (`components/tx-dialog.tsx`) in three moments:
+1. **Review before you sign.** Opening it reads the chain and runs the contract's own checks on the
+   user's numbers ("Simulated against the chain just now"), then shows what changes (now → after)
+   and what is signed (contract, method, arguments, attached deposit, network fee) in plain words.
+   A failed check disables signing and says why.
+2. **Waiting for your wallet.** The dialog can't be closed while the wallet is open.
+3. **Done.** The result read back from the chain (actual shares received, balances), the next
+   thing that happens, and the transaction link. Or **Not sent**: the plain reason, then the raw one.
 
 ### Header
-- Your value: **${value}** · {shares} shares at ${price} each
-- Term popovers on: share, share price.
+- Your value: **${value}** · {shares} shares at ${price} each · wallet {usdc} USDC
 
 ### Not connected
 - Connect a NEAR {network} wallet to deposit. Connecting only shares your account name; nothing
   is sent or signed.
-- Button: `Connect wallet`
-
-### Test USDC (testnet only)
-- Button: `Get 100 test USDC`
-- Before: Mints 100 test USDC to your wallet. It has no real value. 1 transaction.
-- After: 100 test USDC added. Transaction {hash} ↗
 
 ### Deposit
-- Label: Amount (USDC) · Balance {balance} · `MAX`
-- Before you sign: You'll sign 1 transaction that sends {amount} USDC to the vault contract
-  ({vault}). You receive about {shares} shares at ${price} each.
-- Disabled, stale price: Deposits pause while the share price is more than 10 minutes old, so
-  nobody buys in at an outdated price. The keeper refreshes it every cycle.
-- Button: `Deposit {amount} USDC`
-- After: Deposited. {amount} USDC is in the vault and {shares} shares are in your account.
-  Next, the keeper hedges it: a short on Hyperliquid, then the coin through NEAR Intents.
-  Transaction {hash} ↗
+- Helper: You get shares at the current share price. Next you'll see a review of exactly what
+  happens before your wallet asks to sign. (+ "Your wallet has none yet: get test USDC from your
+  account menu (top right)." when the balance is 0 on testnet)
+- Button: `Review deposit`
+- Checks: You have the USDC · The vault is open · The share price is fresh (contract limit 10 min)
+  · Under the vault's cap · You receive shares
+- Notes: If the vault refuses the deposit, the token contract sends your USDC back within the same
+  transaction. After it lands, the keeper hedges your USDC in its next cycle: a short on
+  Hyperliquid first, then the coin through NEAR Intents.
+- Done: Deposited. You received {shares} shares.
 
 ### Withdraw
-- Label: Shares to withdraw · You hold {shares} · `MAX`
-- Before you sign: You'll sign 1 transaction asking the vault to buy back {shares} shares, worth
-  about ${usdc} at today's price. The keeper frees the USDC and the contract sends it to your
-  wallet, usually within 1-3 minutes.
-- Button: `Withdraw ${usdc}`
+- Helper: Worth about ${usdc} at today's price. USDC arrives in your wallet automatically, usually
+  within 1-3 minutes. You'll see a review first.
+- Button: `Review withdrawal`
+- Checks: You hold the shares · The vault is running
+- Notes: Your shares leave your balance now. The keeper prices them at the share price of the
+  moment it processes the request (the contract fixes the price in `fulfill_withdraw`, not at
+  request), usually within 1-3 minutes, and NEAR's MPC network signs the USDC payout to your
+  wallet. You don't sign anything else.
 - Status track:
-  - requested: The vault recorded your request and fixed the price.
-  - signed: NEAR's MPC network signed the payout. Anyone can now execute it.
-  - paid: ${usdc} arrived in your wallet. Transaction {hash} ↗
+  - requested: Your shares left your balance and the payout is queued.
+  - signed: The keeper priced it at the share price, and NEAR's MPC network signed the payout.
+  - paid: USDC arrived in your wallet.
 - Stuck (> 10 min, Alarm): This is taking longer than usual. You can finish it yourself: 1
-  transaction that executes the payout the contract already signed. Button: `Finish it myself`
+  transaction that submits the payout the contract already signed. Button: `Review and finish`
 - Empty list: No withdrawals yet. Requests show up here with each step as it happens.
+
+### Account menu (HUD)
+- `Get 100 test USDC` (testnet): Mints test USDC to your wallet. Testnet only, no real value. 1
+  transaction. Done: 100 test USDC added to your wallet. Transaction ↗
+- Colors: They follow the coin the vault holds ({coin}). Preview another:
+- Animations on / off
+- Disconnect {account}
 
 ### Errors (plain words, then the raw reason in Mono)
 - Rejected in wallet: You cancelled in your wallet. Nothing was sent.
-- Not enough USDC: Your wallet has {balance} USDC. Lower the amount or get test USDC.
-- Contract rejected: The vault rejected this transaction. Reason: `{reason}`
+- Contract rejected: The contract rejected this transaction. Reason: `{reason}`
 - Network: Couldn't reach NEAR. Your funds didn't move. Try again.
 
 ---

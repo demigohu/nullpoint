@@ -28,13 +28,7 @@ export default async function AppPage() {
       </section>
       <section className="p-[var(--pad)] md:pt-28">
         {ov ? (
-          <VaultPanel
-            net={net}
-            sharePrice={ov.sharePrice}
-            navAgeS={ov.state.snapshot ? Math.round((Date.now() - ov.state.snapshot.ms) / 1000) : null}
-            maxNavAgeS={ov.state.params.max_nav_age_s}
-            withdrawalCount={ov.state.withdrawal_count}
-          />
+          <VaultPanel net={net} withdrawalCount={ov.state.withdrawal_count} />
         ) : (
           <div className="panel p-[var(--pad)]">
             <p className="font-bold">The {net.network} vault isn&apos;t live yet.</p>

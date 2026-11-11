@@ -171,12 +171,18 @@ The HUD is fixed and identical on every page. All controls are Mono and sharp, `
 
 - **Top left:** the null**Point** wordmark, which links home.
 - **Top right**, in this order:
-  - Page links (`App`, `Dashboard`, `Proof`).
-  - The mode switcher, a segmented control reading `BTC | ETH | NEAR | 0`. The active segment is
-    inverted.
+  - Page links (`Vault`, `Dashboard`, `Proof`).
   - The network toggle, `testnet | mainnet`.
-  - The wallet button, which shows the account ID truncated from the middle.
-  - Pause, which stops all perpetual motion.
+  - The **account menu**. Connected, the button shows the account ID truncated from the middle and
+    opens a dropdown:
+    - `Get 100 test USDC` (testnet only), with its explanation and transaction link.
+    - Colors: the segmented `BTC | ETH | NEAR | 0` preview (the live coin is named).
+    - Animations on/off, which stops all perpetual motion.
+    - Disconnect.
+  - Disconnected: `Connect wallet` connects directly, and a settings button next to it opens the
+    same dropdown with colors and animations only.
+  - The dropdown scales from the button's corner: 150 ms, opacity + `scale .97 → 1`, `ease-out`.
+    It closes on Escape (focus returns to the button) and on an outside click.
 - **Right edge:** a vertical **7-bit progress readout** made of 7 squares (filled = 1) for the
   scroll percentage in binary, with the decimal value under it rotated 90°. This is the only rotated
   text on the site.
@@ -185,9 +191,8 @@ The HUD is fixed and identical on every page. All controls are Mono and sharp, `
 - **Mobile (< 768px):**
   - The page links and the network toggle move into a full-screen menu that opens with a
     CRT-collapse in reverse (see §6).
-  - Mode, wallet and pause stay in the bar.
-- Magnetic pull on HUD controls (x 0.25, y 0.35 of the pointer offset, `power3.out` 400 ms) only
-  applies with `(hover: hover) and (pointer: fine)` and no reduced motion.
+  - The account menu stays in the bar.
+- No magnetic pull on HUD controls: the account menu hangs from its button and must not drift.
 
 ---
 
@@ -232,11 +237,15 @@ All components are sharp-cornered (radius 0) and use only `--t`, `--f`, Dim (non
 - **Toast:** a slim inverted bar at the bottom center of the screen, Mono 12px. It enters with
   `clip-path inset(0 50%) → inset(0)` over 240 ms and exits in 160 ms.
 - **Explainer** (every user action in the app, wording in COPY.md):
-  - **Before you sign:** one or two plain lines inside the action panel, directly above the button.
-    Say how many transactions, what moves where, and what comes back.
-  - **Status track** while the action runs (see above).
-  - **Receipt** after: the plain result, the next thing that will happen, then the tx hash in Mono
-    with an explorer link ↗.
+  - **Transaction dialog** (`components/tx-dialog.tsx`, native `<dialog>`, 640px max, enters with
+    opacity + `scale .97 → 1` over 200 ms `ease-out`, opacity only under reduced motion):
+    1. *Review before you sign:* reads the chain and runs the contract's own checks on the
+       user's numbers, shown as a list of square bits (filled = passes, Alarm = fails, which
+       disables signing). Then a "now → after" table and a plain-words breakdown of the one
+       transaction: contract, method, arguments, attached deposit, network fee.
+    2. *Waiting for your wallet:* Escape is blocked until the wallet answers.
+    3. *Done:* the result read back from the chain, the next step, the tx hash ↗. Or *Not sent*
+       with the plain reason and `Review again`.
   - **Errors:** plain words first, then the raw reason in Mono below.
   - **Glossary term:** a dotted 1px `--t` underline. Tapping or hovering opens a 280px panel that
     takes the definition from COPY.md §G. Mark only the first use of a term on each page.
@@ -371,7 +380,8 @@ All components are sharp-cornered (radius 0) and use only `--t`, `--f`, Dim (non
   - Above the panel sit your value in a big numeral and the share price.
 - Withdraw is automatic. The status track (§5) shows `requested → signed → paid`.
   `Finish it myself` appears only when a withdrawal is stuck for more than 10 minutes, in Alarm.
-- The faucet (testnet only) is a secondary button inside the deposit panel.
+- Test USDC (testnet only) lives in the account menu (§4), not in the deposit panel.
+- Deposit, withdraw and "finish it myself" each open the transaction dialog (§5 Explainer).
 
 ### `/dashboard`
 - A cockpit layout on a 12-column grid:
