@@ -14,7 +14,7 @@ export type VaultState = {
   owner: string;
   keeper: string;
   config: { vault_address: string; usdc_token_id: string; verifier: string; mpc: string; mpc_path: string; oneclick_pubkey: string; hl_chain: string };
-  params: { max_tvl: string; max_swap_usdc: string; max_slippage_bps: number; hedge_band_bps: number; max_funding_bps: number; max_price_age_s: number; max_nav_age_s: number };
+  params: { max_tvl: string; max_swap_usdc: string; max_slippage_bps: number; hedge_band_bps: number; max_report_drift_bps: number; max_price_age_s: number; max_nav_age_s: number };
   assets: { symbol: string; token_id: string; price_in: string; price_out: string; price_ms: number }[];
   paused: boolean;
   total_shares: string;

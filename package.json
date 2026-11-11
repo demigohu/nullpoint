@@ -6,7 +6,13 @@
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
-    "check-types": "turbo run check-types"
+    "check-types": "turbo run check-types",
+    "demo": "npm run demo -w @nullpoint/scripts --silent",
+    "attack": "npm run attack -w @nullpoint/scripts --silent",
+    "attack:llm": "npm run attack:llm -w @nullpoint/scripts --silent",
+    "simulate:crash": "npm run simulate:crash -w @nullpoint/scripts --silent",
+    "simulate:strategy": "npm run simulate:strategy -w @nullpoint/scripts --silent",
+    "keeper": "npm start -w keeper"
   },
   "devDependencies": {
     "prettier": "3.9.6",

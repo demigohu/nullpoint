@@ -18,6 +18,7 @@ import {
 } from "@nullpoint/core";
 import { askStrategist } from "@nullpoint/core/strategist";
 import { signerFromEnv } from "./chain.ts";
+import { acquireLock, journal } from "./journal.ts";
 import * as oneclick from "./mock1click.ts";
 
 const NET = "testnet";
@@ -27,7 +28,9 @@ const keeper = signerFromEnv(NET, "KEEPER");
 const solver = signerFromEnv(NET, "SOLVER"); // testnet: plays 1Click on the mock verifier
 const DEFAULT_TARGET = "BTC";
 const MIN_TRADE_USDC = 12_000_000n; // Hyperliquid rejects orders under $10, so spot moves in hedgeable chunks
+const STRAY_MIN_USDC = 10_500_000n; // leftover of a non-target asset worth moving: its short can still be closed (>$10)
 const MAX_WITHDRAWALS_PER_CYCLE = 5; // each needs an MPC signature (~15s)
+const WITHDRAW_PULL_EXTRA_USDC = 1_000_000n; // covers the 0.2 USDC Hyperliquid withdrawal fee + quote slippage
 const MARGIN_TOL_USDC = 5_000_000n; // margin drift tolerated before moving USDC (1Click minimum is 0.5)
 const PRICE_SAMPLE_USDC = 1_000_000n; // quote ~1 USDC worth of each asset for pricing
 const ROTATION_COST_BPS = 40; // swap (~30 bps) + closing and opening shorts (~2 x 4.5 bps)
@@ -48,12 +51,50 @@ const exchange = new ExchangeClient({ transport, wallet: agent });
 const keeperCall = (method: string, args: object, gas = 100) => keeper.call(VAULT, method, args, { gas });
 const log = (...a: unknown[]) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
-async function retry<T>(fn: () => Promise<T>, tries = 4): Promise<T> {
+// Hyperliquid market data for the current cycle, used by every order the keeper places.
+let market: { vault: string; meta: Awaited<ReturnType<typeof info.metaAndAssetCtxs>>[0]; mark: (coin: string) => number; leverage: number };
+
+/**
+ * Changes the short in `coin` by `delta` coins (+ = short more, - = buy back) with an IOC order.
+ * Returns false when the change is below Hyperliquid's $10 minimum (nothing to do). Throws if the
+ * venue rejects the order, so callers can avoid changing spot without the matching hedge.
+ */
+async function adjustShort(coin: string, delta: number): Promise<boolean> {
+  if (delta < 0) {
+    // Buying back can't exceed the open short (a reduce-only order would be rejected).
+    const st = await retry(() => info.clearinghouseState({ user: market.vault }));
+    const open = -Number(st.assetPositions.find((x) => x.position.coin === coin)?.position.szi ?? 0);
+    delta = -Math.min(-delta, Math.max(open, 0));
+  }
+  const idx = market.meta.universe.findIndex((u) => u.name === coin);
+  const szDec = market.meta.universe[idx]!.szDecimals;
+  const size = Math.floor(Math.abs(delta) * 10 ** szDec) / 10 ** szDec;
+  if (size * market.mark(coin) < 10) return false;
+  const isBuy = delta < 0;
+  await retry(() => exchange.updateLeverage({ asset: idx, isCross: true, leverage: market.leverage }));
+  const px = market.mark(coin) * (isBuy ? 1.01 : 0.99);
+  const res = await retry(
+    () => exchange.order({
+      orders: [{ a: idx, b: isBuy, p: Number(px.toPrecision(5)).toFixed(Math.max(0, 6 - szDec)).replace(/\.?0+$/, ""), s: size.toFixed(szDec), r: isBuy, t: { limit: { tif: "Ioc" } } }],
+      grouping: "na",
+    }),
+    { reads: false },
+  );
+  log(`${isBuy ? "reduced" : "shorted"} ${coin} ${size.toFixed(szDec)} ->`, JSON.stringify(res.response.data.statuses));
+  return true;
+}
+
+/**
+ * Retries network failures. Reads also retry timeouts; orders don't (`reads: false`), because a
+ * timed-out order may have filled, and the hedge step reconciles sizes next cycle anyway.
+ */
+async function retry<T>(fn: () => Promise<T>, { tries = 4, reads = true } = {}): Promise<T> {
   for (let i = 0; ; i++) {
     try {
       return await fn();
     } catch (e) {
-      if (i >= tries - 1 || !String(e).includes("fetch failed")) throw e;
+      const transient = String(e).includes("fetch failed") || (reads && /timed out/i.test(String(e)));
+      if (i >= tries - 1 || !transient) throw e;
       await new Promise((r) => setTimeout(r, 1500));
     }
   }
@@ -126,26 +167,87 @@ async function decide(ctx: Context, mkts: Market[], p: ReturnType<typeof plan>) 
  */
 async function moveViaQuote(req: Record<string, unknown>) {
   const q = await oneclick.quote({ dry: false, swapType: "EXACT_INPUT", deadline: new Date(Date.now() + 10 * 60_000).toISOString(), ...req });
+  // Hedge first: change the shorts for this swap before spot changes. If Hyperliquid refuses the
+  // order, the swap never happens and the vault stays delta-neutral.
+  const from = ASSETS.find((a) => a.tokenId === q.quoteRequest.originAsset);
+  const to = ASSETS.find((a) => a.tokenId === q.quoteRequest.destinationAsset);
+  if (from) await adjustShort(from.hlCoin, -Number(q.quote.amountIn) / 10 ** from.decimals);
+  if (to) await adjustShort(to.hlCoin, Number(q.quote.minAmountOut) / 10 ** to.decimals);
+  const dep = q.quote.depositAddress as string;
+  journal.put(dep, { q, ms: Date.now() });
   const salt = await view<string>(NET, VERIFIER, "current_salt");
   const tx = await keeperCall("sign_quote", { message: msg(q), signature: q.signature, salt_hex: salt }, 300);
   const { signed_count } = await view(NET, VAULT, "get_state");
-  const [[, s]] = await view(NET, VAULT, "get_signed", { from: String(signed_count - 1), limit: 1 });
-  if (!s.signature || s.signature === "error") throw new Error(`MPC did not sign quote (tx ${tx.tx})`);
-  if (s.kind === "hl_send_asset") {
-    const res = await postSignedAction("testnet", s.payload, s.signature);
-    if (res?.status !== "ok") throw new Error(`Hyperliquid rejected the vault's sendAsset: ${JSON.stringify(res)}`);
-  } else {
-    // Testnet: the vault-signed intent goes to the mock verifier (mainnet: 1Click /v0/submit-intent).
-    await solver.call(VERIFIER, "execute_intents", { signed: [{ standard: "erc191", payload: s.payload, signature: mpcToIntentsSignature(s.signature) }] }, { gas: 100 });
-  }
-  await oneclick.fill(solver, VERIFIER, q);
+  journal.update(dep, { signedId: signed_count - 1 });
+  // Test hook for crash recovery: die after MPC signed, before the move executes.
+  if (process.env.KEEPER_TEST_CRASH_AFTER_SIGN === "1") process.exit(99);
+  await settle(dep);
   return tx.tx;
+}
+
+type SignedItem = { kind: string; payload: string; signature: string | null; ms: number };
+
+/**
+ * Takes a journaled move from wherever it stopped to filled. Safe to repeat: an intent whose nonce
+ * the verifier already used isn't resubmitted, Hyperliquid rejects a reused sendAsset nonce, and the
+ * journal stops the mock solver from filling twice.
+ */
+async function settle(dep: string) {
+  const m = journal.all()[dep];
+  if (!m || m.filled) return;
+  if (m.signedId === undefined) throw new Error(`move ${dep.slice(0, 10)} has no signature yet`);
+  const [[, s]] = await view<[number, SignedItem][]>(NET, VAULT, "get_signed", { from: String(m.signedId), limit: 1 });
+  if (!s.signature || s.signature === "error") throw new Error(`MPC did not sign move ${dep.slice(0, 10)}`);
+  if (!m.executed) {
+    if (s.kind === "hl_send_asset") {
+      const res = await postSignedAction("testnet", s.payload, s.signature);
+      if (res?.status !== "ok" && !/nonce/i.test(JSON.stringify(res))) throw new Error(`Hyperliquid rejected the vault's sendAsset: ${JSON.stringify(res)}`);
+    } else {
+      const { signer_id, nonce, deadline } = JSON.parse(s.payload);
+      const used = await view<boolean>(NET, VERIFIER, "is_nonce_used", { account_id: signer_id, nonce });
+      if (!used) {
+        if (Date.parse(deadline) < Date.now()) throw new Error(`signed intent for ${dep.slice(0, 10)} expired unexecuted; check margin records`);
+        // Testnet: the vault-signed intent goes to the mock verifier (mainnet: 1Click /v0/submit-intent).
+        await solver.call(VERIFIER, "execute_intents", { signed: [{ standard: "erc191", payload: s.payload, signature: mpcToIntentsSignature(s.signature) }] }, { gas: 100 });
+      }
+    }
+    journal.update(dep, { executed: true });
+  }
+  await oneclick.fill(solver, VERIFIER, m.q);
+  journal.update(dep, { filled: true });
+}
+
+/** Finishes moves an earlier run left half-done (crash, RPC failure between steps). */
+async function resumeMoves() {
+  for (const [dep, m] of Object.entries(journal.all())) {
+    if (m.filled) continue;
+    if (m.signedId === undefined) {
+      // sign_quote may have landed without us learning its index: find the payload paying our
+      // deposit address. Nothing after 3 minutes means it never landed.
+      const { signed_count } = await view(NET, VAULT, "get_state");
+      const recent = await view<[number, SignedItem][]>(NET, VAULT, "get_signed", { from: String(Math.max(0, signed_count - 20)), limit: 20 });
+      const hit = recent.find(([, s]) => s.ms >= m.ms - 60_000 && s.payload.includes(dep));
+      if (hit) journal.update(dep, { signedId: hit[0] });
+      else {
+        if (Date.now() - m.ms > 3 * 60_000) journal.update(dep, { filled: true }); // abandoned before signing
+        continue;
+      }
+    }
+    try {
+      await settle(dep);
+      log(`resumed move to ${dep.slice(0, 10)}…`);
+    } catch (e) {
+      log(`could not resume move to ${dep.slice(0, 10)}…:`, (e as Error).message.slice(0, 200));
+    }
+  }
+  journal.prune(30 * 60_000);
 }
 
 async function cycle() {
   const state = await view(NET, VAULT, "get_state");
   const { vault_address: vaultAddress, usdc_token_id: usdcToken } = state.config;
-  if (state.paused) return log("vault paused, skipping");
+  await resumeMoves();
+  if (state.paused) return log("vault paused, skipping (owner must investigate and unpause)");
   if (BigInt(state.pending_usdc) > 0n) log("swept deposits, tx", (await keeperCall("sweep", {}, 150)).tx);
   const side = { refundTo: vaultAddress, refundType: "INTENTS", recipient: vaultAddress, recipientType: "INTENTS", depositType: "INTENTS" };
   const nowMs = Date.now();
@@ -172,6 +274,8 @@ async function cycle() {
     p = plan(await view<[number, OnChainDecision][]>(NET, VAULT, "get_decisions", { from: "0", limit: 500 }).then((d) => d.map(([, x]) => x)), nowMs);
   }
 
+  market = { vault: vaultAddress, meta, mark, leverage: p.leverage };
+
   // 3. allocate: settle withdrawals, then one capped move toward
   //    margin = equity / (L+1) on Hyperliquid, spot = the rest in the target asset (or USDC when parked).
   const tokens = [usdcToken, ...ASSETS.map((a) => a.tokenId)];
@@ -194,80 +298,98 @@ async function cycle() {
   const marginTarget = p.target && equity > 0n ? equity / (L + 1n) : 0n;
   const spotTarget = p.target && equity > 0n ? equity - marginTarget : 0n;
   const targetToken = p.target ? assetBySymbol(p.target).tokenId : usdcToken;
-  const stray = ASSETS.findIndex((a, i) => a.tokenId !== targetToken && usdValue(i) >= MIN_TRADE_USDC);
+  const stray = ASSETS.findIndex((a, i) => a.tokenId !== targetToken && usdValue(i) >= STRAY_MIN_USDC);
   const ti = ASSETS.findIndex((a) => a.tokenId === targetToken);
   const swapSlip = { slippageTolerance: 50, ...side }; // within the contract's max_slippage_bps of the oracle price
   const hlUsdc = state.config.hl_usdc_asset as string;
 
-  // Withdrawals first: finish any signed-but-unexecuted payout (e.g. after a restart), then pay the
-  // queue in order while idle USDC covers it. Whatever isn't covered becomes `reserve` above, so the
-  // moves below unwind toward it and the rest is paid next cycle.
-  for (const [id] of withdrawals.filter(([, w]) => w.status === "signed")) {
-    try {
-      log(`paid withdrawal #${id} (tx ${(await keeperCall("execute_withdraw", { id }, 200)).tx})`);
-    } catch (e) {
-      log(`withdrawal #${id} execute failed, will re-sign:`, (e as Error).message.slice(0, 160));
+  // Moves can fail (RPC, venue); the report in step 5 must still go out, or deposits stall on a stale NAV.
+  try {
+    // Withdrawals first: finish any signed-but-unexecuted payout (e.g. after a restart), then pay the
+    // queue in order while idle USDC covers it. Whatever isn't covered becomes `reserve` above, so the
+    // moves below unwind toward it and the rest is paid next cycle.
+    for (const [id] of withdrawals.filter(([, w]) => w.status === "signed")) {
+      try {
+        log(`paid withdrawal #${id} (tx ${(await keeperCall("execute_withdraw", { id }, 200)).tx})`);
+      } catch (e) {
+        log(`withdrawal #${id} execute failed, will re-sign:`, (e as Error).message.slice(0, 160));
+      }
     }
-  }
-  let budget = idle, paid = 0;
-  for (const [id, w] of queued) {
-    const value = BigInt(Math.ceil(Number(w.shares) * navPerShare));
-    if (value > budget || paid >= MAX_WITHDRAWALS_PER_CYCLE) break; // FIFO: don't let small ones jump the line
-    const salt = await view<string>(NET, VERIFIER, "current_salt");
-    await keeperCall("fulfill_withdraw", { id, salt_hex: salt }, 300);
-    log(`paid withdrawal #${id} (tx ${(await keeperCall("execute_withdraw", { id }, 200)).tx})`);
-    budget -= value;
-    paid++;
-  }
+    let budget = idle, paid = 0;
+    for (const [id, w] of queued) {
+      const value = BigInt(Math.ceil(Number(w.shares) * navPerShare));
+      if (value > budget || paid >= MAX_WITHDRAWALS_PER_CYCLE) break; // FIFO: don't let small ones jump the line
+      const salt = await view<string>(NET, VERIFIER, "current_salt");
+      await keeperCall("fulfill_withdraw", { id, salt_hex: salt }, 300);
+      log(`paid withdrawal #${id} (tx ${(await keeperCall("execute_withdraw", { id }, 200)).tx})`);
+      budget -= value;
+      paid++;
+    }
 
-  if (paid > 0) {
-    // State changed under the numbers above; rebalance next cycle.
-  } else if (stray >= 0) {
-    const value = usdValue(stray);
-    const amount = value > cap ? (balances[stray + 1]! * cap) / value : balances[stray + 1]!;
-    log(`moved ${ASSETS[stray]!.symbol} -> ${p.target ?? "USDC"} (sign tx ${await moveViaQuote({ originAsset: ASSETS[stray]!.tokenId, destinationAsset: targetToken, amount: amount.toString(), ...swapSlip })})`);
-  } else if (hlValue + MARGIN_TOL_USDC < marginTarget && idle >= MARGIN_TOL_USDC) {
-    const amount = min(min(idle, marginTarget - hlValue), cap);
-    log(`sent ${Number(amount) / 1e6} USDC margin to Hyperliquid (sign tx ${await moveViaQuote({ originAsset: usdcToken, destinationAsset: hlUsdc, amount: amount.toString(), slippageTolerance: 100, ...side, recipientType: "DESTINATION_CHAIN" })})`);
-  } else if (ti >= 0 && usdValue(ti) + MIN_TRADE_USDC < spotTarget && idle >= MIN_TRADE_USDC) {
-    const amount = min(min(idle, spotTarget - usdValue(ti)), cap);
-    log(`bought ${p.target} with ${Number(amount) / 1e6} USDC (sign tx ${await moveViaQuote({ originAsset: usdcToken, destinationAsset: targetToken, amount: amount.toString(), ...swapSlip })})`);
-  } else if (ti >= 0 && usdValue(ti) > spotTarget + MIN_TRADE_USDC) {
-    const excess = usdValue(ti) - spotTarget;
-    const amount = (balances[ti + 1]! * min(excess, cap)) / usdValue(ti);
-    log(`sold ${p.target} for USDC (sign tx ${await moveViaQuote({ originAsset: targetToken, destinationAsset: usdcToken, amount: amount.toString(), ...swapSlip })})`);
-  } else if (hlValue > marginTarget + MARGIN_TOL_USDC && hlFree >= MARGIN_TOL_USDC) {
-    const amount6 = min(min(hlValue - marginTarget, hlFree), cap);
-    log(`pulled ${Number(amount6) / 1e6} USDC margin from Hyperliquid (sign tx ${await moveViaQuote({
-      originAsset: hlUsdc, destinationAsset: usdcToken, amount: (amount6 * 100n).toString(), slippageTolerance: 100,
-      depositType: "ORIGIN_CHAIN", refundTo: vaultAddress, refundType: "ORIGIN_CHAIN", recipient: vaultAddress, recipientType: "INTENTS",
-    })})`);
+    // USDC still missing for the first withdrawal the loop above couldn't pay.
+    const nextQueued = queued[paid];
+    const shortfall = nextQueued ? BigInt(Math.ceil(Number(nextQueued[1].shares) * navPerShare)) - budget : 0n;
+
+    // Margin emergency: account value under 3x maintenance margin means a fast rally is eating the
+    // short's margin. Top up from idle USDC, or shrink the position (sell spot; step 4 buys back the short).
+    const maintenance = BigInt(Math.round(Number(hl.crossMaintenanceMarginUsed) * 1e6));
+    const marginLow = maintenance > 0n && hlValue < 3n * maintenance;
+
+    if (paid > 0) {
+      // State changed under the numbers above; rebalance next cycle.
+    } else if (marginLow && idle >= 1_000_000n) {
+      const amount = min(idle, cap);
+      log(`MARGIN LOW (account ${Number(hlValue) / 1e6} vs maintenance ${Number(maintenance) / 1e6}): sent ${Number(amount) / 1e6} USDC (sign tx ${await moveViaQuote({ originAsset: usdcToken, destinationAsset: hlUsdc, amount: amount.toString(), slippageTolerance: 100, ...side, recipientType: "DESTINATION_CHAIN" })})`);
+    } else if (marginLow && ti >= 0 && usdValue(ti) >= MIN_TRADE_USDC) {
+      const amount = balances[ti + 1]! / 4n;
+      log(`MARGIN LOW, no idle USDC: selling a quarter of the ${p.target} spot to shrink the hedge (sign tx ${await moveViaQuote({ originAsset: targetToken, destinationAsset: usdcToken, amount: amount.toString(), ...swapSlip })})`);
+    } else if (shortfall > 0n && hlFree >= shortfall + WITHDRAW_PULL_EXTRA_USDC) {
+      // Raise USDC for the next queued withdrawal directly, ignoring rebalancing thresholds: otherwise a
+      // shortfall split across both legs (each under its threshold) would leave the queue stuck.
+      const amount6 = min(shortfall + WITHDRAW_PULL_EXTRA_USDC, cap);
+      log(`pulled ${Number(amount6) / 1e6} USDC margin for withdrawal #${nextQueued![0]} (sign tx ${await moveViaQuote({
+        originAsset: hlUsdc, destinationAsset: usdcToken, amount: (amount6 * 100n).toString(), slippageTolerance: 100,
+        depositType: "ORIGIN_CHAIN", refundTo: vaultAddress, refundType: "ORIGIN_CHAIN", recipient: vaultAddress, recipientType: "INTENTS",
+      })})`);
+    } else if (shortfall > 0n && ti >= 0 && usdValue(ti) >= MIN_TRADE_USDC) {
+      // Sell at least MIN_TRADE so step 4 can shrink the short by an order Hyperliquid accepts.
+      const usd = min(shortfall > MIN_TRADE_USDC ? shortfall : MIN_TRADE_USDC, min(usdValue(ti), cap));
+      const amount = (balances[ti + 1]! * usd) / usdValue(ti);
+      log(`sold ${Number(usd) / 1e6} USDC of ${p.target} for withdrawal #${nextQueued![0]} (sign tx ${await moveViaQuote({ originAsset: targetToken, destinationAsset: usdcToken, amount: amount.toString(), ...swapSlip })})`);
+    } else if (stray >= 0) {
+      const value = usdValue(stray);
+      // Capped swaps never leave a remainder too small to close on Hyperliquid: keep exactly STRAY_MIN back.
+      const usd = value <= cap ? value : value - cap >= STRAY_MIN_USDC ? cap : value - STRAY_MIN_USDC;
+      const amount = usd === value ? balances[stray + 1]! : (balances[stray + 1]! * usd) / value;
+      log(`moved ${ASSETS[stray]!.symbol} -> ${p.target ?? "USDC"} (sign tx ${await moveViaQuote({ originAsset: ASSETS[stray]!.tokenId, destinationAsset: targetToken, amount: amount.toString(), ...swapSlip })})`);
+    } else if (hlValue + MARGIN_TOL_USDC < marginTarget && idle >= MARGIN_TOL_USDC) {
+      const amount = min(min(idle, marginTarget - hlValue), cap);
+      log(`sent ${Number(amount) / 1e6} USDC margin to Hyperliquid (sign tx ${await moveViaQuote({ originAsset: usdcToken, destinationAsset: hlUsdc, amount: amount.toString(), slippageTolerance: 100, ...side, recipientType: "DESTINATION_CHAIN" })})`);
+    } else if (ti >= 0 && usdValue(ti) + MIN_TRADE_USDC < spotTarget && idle >= MIN_TRADE_USDC) {
+      const amount = min(min(idle, spotTarget - usdValue(ti)), cap);
+      log(`bought ${p.target} with ${Number(amount) / 1e6} USDC (sign tx ${await moveViaQuote({ originAsset: usdcToken, destinationAsset: targetToken, amount: amount.toString(), ...swapSlip })})`);
+    } else if (ti >= 0 && usdValue(ti) > spotTarget + MIN_TRADE_USDC) {
+      const excess = usdValue(ti) - spotTarget;
+      const amount = (balances[ti + 1]! * min(excess, cap)) / usdValue(ti);
+      log(`sold ${p.target} for USDC (sign tx ${await moveViaQuote({ originAsset: targetToken, destinationAsset: usdcToken, amount: amount.toString(), ...swapSlip })})`);
+    } else if (hlValue > marginTarget + MARGIN_TOL_USDC && hlFree >= MARGIN_TOL_USDC) {
+      const amount6 = min(min(hlValue - marginTarget, hlFree), cap);
+      log(`pulled ${Number(amount6) / 1e6} USDC margin from Hyperliquid (sign tx ${await moveViaQuote({
+        originAsset: hlUsdc, destinationAsset: usdcToken, amount: (amount6 * 100n).toString(), slippageTolerance: 100,
+        depositType: "ORIGIN_CHAIN", refundTo: vaultAddress, refundType: "ORIGIN_CHAIN", recipient: vaultAddress, recipientType: "INTENTS",
+      })})`);
+    }
+  } catch (e) {
+    log("allocation step failed:", (e as Error).message.slice(0, 240));
   }
   balances = await readBalances();
 
-  // 4. hedge: short size per asset = spot held, rounded to Hyperliquid's size step
+  // 4. hedge: short size per asset = spot held (trues up rounding and anything a failed move left)
   hl = await retry(() => info.clearinghouseState({ user: vaultAddress }));
-  // A failed hedge must not stop the report below: a stale NAV would block deposits.
+  const shortOf = (coin: string) => -Number(hl.assetPositions.find((x) => x.position.coin === coin)?.position.szi ?? 0);
   try {
     for (const [i, a] of ASSETS.entries()) {
-      const idx = meta.universe.findIndex((u) => u.name === a.hlCoin);
-      const szDec = meta.universe[idx]!.szDecimals;
-      const step = 10 ** -szDec;
-      const spot = Number(balances[i + 1]!) / 10 ** a.decimals;
-      const short = -Number(hl.assetPositions.find((x) => x.position.coin === a.hlCoin)?.position.szi ?? 0);
-      const delta = Math.floor((spot - short) / step) * step; // >0: short more, <0: buy back
-      if (Math.abs(delta) * mark(a.hlCoin) < 1) continue;
-      await retry(() => exchange.updateLeverage({ asset: idx, isCross: true, leverage: p.leverage }));
-      const isBuy = delta < 0;
-      const px = mark(a.hlCoin) * (isBuy ? 1.01 : 0.99);
-      const size = Math.abs(delta).toFixed(szDec);
-      const res = await retry(() =>
-        exchange.order({
-          orders: [{ a: idx, b: isBuy, p: Number(px.toPrecision(5)).toFixed(Math.max(0, 6 - szDec)).replace(/\.?0+$/, ""), s: size, r: isBuy, t: { limit: { tif: "Ioc" } } }],
-          grouping: "na",
-        }),
-      );
-      log(`${isBuy ? "reduced" : "shorted"} ${a.hlCoin} ${size} ->`, JSON.stringify(res.response.data.statuses));
+      await adjustShort(a.hlCoin, Number(balances[i + 1]!) / 10 ** a.decimals - shortOf(a.hlCoin));
     }
   } catch (e) {
     log("hedge failed:", (e as Error).message);
@@ -287,11 +409,21 @@ async function cycle() {
       };
     });
   const accountValue = Math.round(Number(hl.marginSummary.accountValue) * 1e6).toString();
+  // Don't report a hedge we know is off: the contract would pause the vault. A stale NAV only holds
+  // deposits until the next cycle fixes the hedge (e.g. Hyperliquid refusing orders under congestion).
+  const offHedge = ASSETS.filter((a, i) => {
+    const spot = Number(balances[i + 1]!) / 10 ** a.decimals;
+    const short = -Number(hl.assetPositions.find((x) => x.position.coin === a.hlCoin)?.position.szi ?? 0);
+    const gapUsd = Math.abs(spot - short) * mark(a.hlCoin);
+    return gapUsd > (spot * mark(a.hlCoin) * Number(state.params.hedge_band_bps)) / 10_000 + Number(state.params.dust_usdc) / 1e6;
+  });
+  if (offHedge.length) return log(`hedge off for ${offHedge.map((a) => a.symbol).join(", ")}; not reporting until it's fixed`);
   await keeperCall("report_position", { positions, account_value: accountValue });
   const after = await view(NET, VAULT, "get_state");
   log(`NAV ${Number(after.snapshot?.nav ?? 0) / 1e6} USDC | target ${p.target ?? "PARKED"} | HL ${Number(accountValue) / 1e6} | ${JSON.stringify(positions)} | paused ${after.paused}`);
 }
 
+acquireLock();
 const once = process.argv.includes("--once");
 do {
   try {

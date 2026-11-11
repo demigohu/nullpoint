@@ -3,7 +3,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "spike:chainsig-hl": "node spike-chainsig-hl.ts"
+    "demo": "node demo.ts",
+    "attack": "node attack.ts",
+    "attack:llm": "node --env-file-if-exists=../.env attack-llm.ts",
+    "simulate:crash": "node simulate-crash.ts",
+    "simulate:strategy": "node --env-file-if-exists=../.env simulate-strategy.ts",
+    "e2e:testnet": "node e2e-testnet.ts",
+    "deploy:testnet": "bash deploy-testnet.sh",
+    "reset:testnet": "node reset-testnet.ts"
   },
   "dependencies": {
     "@defuse-protocol/one-click-sdk-typescript": "^0.1.26",

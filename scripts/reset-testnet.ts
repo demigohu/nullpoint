@@ -1,12 +1,12 @@
 // Fresh testnet state for a clean demo: same accounts and the same vault EVM address.
 //   1. close every Hyperliquid position on the vault's master (agent) and fold spot USDC into perp
-//   2. delete + redeploy the vault and the mock verifier (fresh state, fresh salt)
+//   2. redeploy the vault and the mock verifier with `reinit` (fresh state and salt, same accounts)
 //   3. register both on mock USDC
 //   4. sweep the master's leftover USDC to the mock 1Click solver *through the new vault*
 //      (verified quote -> MPC-signed sendAsset), then zero the vault's margin record
 //   node reset-testnet.ts
-import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { ExchangeClient, HttpTransport, InfoClient } from "@nktkas/hyperliquid";
 import { privateKeyToAccount } from "viem/accounts";
 import { postSignedAction, signedMessage, view } from "@nullpoint/core";
@@ -43,12 +43,12 @@ if (spot && Number(spot.total) > 0) {
   console.log("spot -> perp", spot.total, JSON.stringify(await exchange.agentSendAsset({ destination: master, sourceDex: "spot", destinationDex: "", token: "USDC", amount: spot.total })));
 }
 
-step("2. redeploy vault and verifier with fresh state");
-for (const a of [VAULT, VERIFIER]) {
-  const r = spawnSync("near", ["account", "delete-account", a, "beneficiary", OWNER, "network-config", "testnet", "sign-with-keychain", "send"], { encoding: "utf8" });
-  console.log(`deleted ${a}:`, /deleted|successfully/i.test(r.stdout + r.stderr) ? "ok" : (r.stdout + r.stderr).slice(-300));
-}
-execFileSync("bash", [new URL("deploy-testnet.sh", import.meta.url).pathname], { stdio: "inherit", env: { ...process.env, OWNER } });
+step("2. redeploy vault and verifier with fresh state (same accounts, new storage generation)");
+const GEN_FILE = new URL(".spike/reset-generation", import.meta.url);
+const generation = (existsSync(GEN_FILE) ? Number(readFileSync(GEN_FILE, "utf8")) : 0) + 1;
+if (generation > 255) throw new Error("storage generations exhausted; use new account names");
+execFileSync("bash", [new URL("deploy-testnet.sh", import.meta.url).pathname], { stdio: "inherit", env: { ...process.env, OWNER, REINIT_GENERATION: String(generation) } });
+writeFileSync(GEN_FILE, String(generation));
 
 step("3. register vault and verifier on mock USDC");
 for (const a of [VAULT, VERIFIER]) await mustCall(OWNER, USDC, "mint", { account_id: a, amount: "0" }, { gas: 30 });

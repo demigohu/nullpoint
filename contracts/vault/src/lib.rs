@@ -21,13 +21,15 @@ const INTENT_TTL_MS: u64 = 5 * 60_000;
 
 #[near]
 #[derive(BorshStorageKey)]
+/// Storage prefixes carry a generation so `reinit` starts from empty collections on the same account
+/// (NEAR won't delete an account with large state, and reusing prefixes would revive old balances).
 enum Key {
-    Shares,
-    UsedQuotes,
-    Withdrawals,
-    Signed,
-    Decisions,
-    NavHistory,
+    Shares(u8),
+    UsedQuotes(u8),
+    Withdrawals(u8),
+    Signed(u8),
+    Decisions(u8),
+    NavHistory(u8),
 }
 
 #[near(serializers = [json, borsh])]
@@ -59,7 +61,8 @@ pub struct Params {
     pub max_slippage_bps: u32,
     pub margin_slippage_bps: u32,
     pub hedge_band_bps: u32,
-    pub max_funding_bps: u32,
+    /// Max unexplained change in the Hyperliquid account value between two reports.
+    pub max_report_drift_bps: u32,
     pub dust_usdc: U128,
     pub max_price_age_s: u64,
     pub max_nav_age_s: u64,
@@ -191,6 +194,8 @@ pub struct Contract {
     margin_net: i128,
     positions: Vec<Position>,
     account_value: u128,
+    /// margin_net and asset prices (price_in, price_out) at the last accepted report; None before it.
+    last_report: Option<(i128, Vec<(U128, U128)>)>,
     snapshot: Option<Snapshot>,
     used_quotes: LookupSet<[u8; 32]>,
     withdrawals: Vector<Withdrawal>,
@@ -211,6 +216,21 @@ fn bps(amount: u128, bps: u32) -> u128 {
 impl Contract {
     #[init]
     pub fn new(owner: AccountId, keeper: AccountId, config: Config, params: Params, assets: Vec<(String, String)>) -> Self {
+        Self::fresh(0, owner, keeper, config, params, assets)
+    }
+
+    /// Wipes the vault to a fresh state on the same account (testnet resets). `#[private]`: only a
+    /// transaction signed by the vault account itself can call it, never the keeper or a user.
+    #[private]
+    #[init(ignore_state)]
+    pub fn reinit(generation: u8, owner: AccountId, keeper: AccountId, config: Config, params: Params, assets: Vec<(String, String)>) -> Self {
+        require!(generation > 0, "use a new generation");
+        Self::fresh(generation, owner, keeper, config, params, assets)
+    }
+}
+
+impl Contract {
+    fn fresh(g: u8, owner: AccountId, keeper: AccountId, config: Config, params: Params, assets: Vec<(String, String)>) -> Self {
         quote::decode_pubkey(&config.oneclick_pubkey);
         Self {
             owner,
@@ -222,22 +242,26 @@ impl Contract {
                 .map(|(symbol, token_id)| Asset { symbol, token_id, price_in: U128(0), price_out: U128(0), price_ms: 0 })
                 .collect(),
             paused: false,
-            shares: LookupMap::new(Key::Shares),
+            shares: LookupMap::new(Key::Shares(g)),
             total_shares: 0,
             pending_usdc: 0,
             owed_usdc: 0,
             margin_net: 0,
             positions: vec![],
             account_value: 0,
+            last_report: None,
             snapshot: None,
-            used_quotes: LookupSet::new(Key::UsedQuotes),
-            withdrawals: Vector::new(Key::Withdrawals),
-            signed: Vector::new(Key::Signed),
-            decisions: Vector::new(Key::Decisions),
-            nav_history: Vector::new(Key::NavHistory),
+            used_quotes: LookupSet::new(Key::UsedQuotes(g)),
+            withdrawals: Vector::new(Key::Withdrawals(g)),
+            signed: Vector::new(Key::Signed(g)),
+            decisions: Vector::new(Key::Decisions(g)),
+            nav_history: Vector::new(Key::NavHistory(g)),
         }
     }
+}
 
+#[near]
+impl Contract {
     // ---------- owner ----------
 
     pub fn set_keeper(&mut self, keeper: AccountId) {
@@ -386,6 +410,7 @@ impl Contract {
             Ok(nav) => {
                 self.positions = positions;
                 self.account_value = account_value.0;
+                self.last_report = Some((self.margin_net, self.assets.iter().map(|a| (a.price_in, a.price_out)).collect()));
                 self.snapshot = Some(Snapshot {
                     nav: U128(nav),
                     ms: now_ms(),
@@ -689,9 +714,25 @@ impl Contract {
         if positions.iter().any(|x| !self.assets.iter().any(|a| a.symbol == x.symbol)) {
             return Err("position in non-allowlisted asset".into());
         }
-        // Hyperliquid account value = margin sent + short PnL + funding (bounded).
-        let expected = self.margin_net + pnl;
-        let tolerance = (bps(short_value, p.max_funding_bps) + p.dust_usdc.0) as i128;
+        // The Hyperliquid account value must be explained by what the contract knows. Compared with the
+        // last accepted report: + margin moved since, + what the old shorts gained or lost at the new
+        // prices. Funding and realized PnL are already inside the last value, so they don't pile up.
+        // The very first report has nothing to compare with: margin sent + open short PnL.
+        let expected = match &self.last_report {
+            None => self.margin_net + pnl,
+            Some((margin_then, px_then)) => {
+                let mut price_effect = 0i128;
+                for (a, (pin, pout)) in self.assets.iter().zip(px_then) {
+                    let Some(old) = self.positions.iter().find(|x| x.symbol == a.symbol) else { continue };
+                    let then = (old.size.0 * pout.0 / pin.0.max(1)) as i128;
+                    let now = (old.size.0 * a.price_out.0 / a.price_in.0.max(1)) as i128;
+                    price_effect += then - now; // a short gains when the price falls
+                }
+                self.account_value as i128 + (self.margin_net - margin_then) + price_effect
+            }
+        };
+        let base = short_value.max(self.account_value);
+        let tolerance = (bps(base, p.max_report_drift_bps) + p.dust_usdc.0) as i128;
         if (account_value as i128 - expected).abs() > tolerance {
             return Err(format!("account value {account_value} outside expected {expected} ± {tolerance}"));
         }

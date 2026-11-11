@@ -45,8 +45,15 @@ create "keeper.$OWNER" 1.0 legacy
 has_code "usdc.$OWNER" && echo "deployed: usdc.$OWNER" || (cd contracts/mock-ft && cargo near deploy build-non-reproducible-wasm "usdc.$OWNER" \
   with-init-call new json-args '{"symbol":"mUSDC","decimals":6}' prepaid-gas '30.0 Tgas' attached-deposit '0 NEAR' $NET $SIGN)
 
-has_code "verifier.$OWNER" && echo "deployed: verifier.$OWNER" || (cd contracts/mock-verifier && cargo near deploy build-non-reproducible-wasm "verifier.$OWNER" \
-  with-init-call new json-args "{\"owner\":\"$OWNER\"}" prepaid-gas '30.0 Tgas' attached-deposit '0 NEAR' $NET $SIGN)
+# REINIT_GENERATION=<n> redeploys the vault and verifier with a fresh state on the same accounts
+# (reset-testnet.ts sets it; NEAR won't delete accounts with large state).
+if [ -n "${REINIT_GENERATION:-}" ]; then
+  (cd contracts/mock-verifier && cargo near deploy build-non-reproducible-wasm "verifier.$OWNER" \
+    with-init-call reinit json-args "{\"generation\":$REINIT_GENERATION,\"owner\":\"$OWNER\"}" prepaid-gas '30.0 Tgas' attached-deposit '0 NEAR' $NET $SIGN)
+else
+  has_code "verifier.$OWNER" && echo "deployed: verifier.$OWNER" || (cd contracts/mock-verifier && cargo near deploy build-non-reproducible-wasm "verifier.$OWNER" \
+    with-init-call new json-args "{\"owner\":\"$OWNER\"}" prepaid-gas '30.0 Tgas' attached-deposit '0 NEAR' $NET $SIGN)
+fi
 
 VAULT_ADDRESS=$(node --input-type=module -e "import { deriveEvmAddress } from '@nullpoint/core'; console.log(deriveEvmAddress('testnet', 'vault.$OWNER', 'hl-master'))")
 echo "vault EVM address (Intents account + Hyperliquid master): $VAULT_ADDRESS"
@@ -75,7 +82,7 @@ INIT=$(cat <<EOF
     "max_slippage_bps": 150,
     "margin_slippage_bps": 300,
     "hedge_band_bps": 200,
-    "max_funding_bps": 300,
+    "max_report_drift_bps": 100,
     "dust_usdc": "500000",
     "max_price_age_s": 120,
     "max_nav_age_s": 600,
@@ -85,7 +92,12 @@ INIT=$(cat <<EOF
 }
 EOF
 )
-has_code "vault.$OWNER" && echo "deployed: vault.$OWNER" || (cd contracts/vault && cargo near deploy build-non-reproducible-wasm "vault.$OWNER" \
-  with-init-call new json-args "$INIT" prepaid-gas '30.0 Tgas' attached-deposit '0 NEAR' $NET $SIGN)
+if [ -n "${REINIT_GENERATION:-}" ]; then
+  (cd contracts/vault && cargo near deploy build-non-reproducible-wasm "vault.$OWNER" \
+    with-init-call reinit json-args "{\"generation\":$REINIT_GENERATION,${INIT#\{}" prepaid-gas '30.0 Tgas' attached-deposit '0 NEAR' $NET $SIGN)
+else
+  has_code "vault.$OWNER" && echo "deployed: vault.$OWNER" || (cd contracts/vault && cargo near deploy build-non-reproducible-wasm "vault.$OWNER" \
+    with-init-call new json-args "$INIT" prepaid-gas '30.0 Tgas' attached-deposit '0 NEAR' $NET $SIGN)
+fi
 
 echo "done: vault.$OWNER  verifier.$OWNER  usdc.$OWNER  keeper.$OWNER  ($VAULT_ADDRESS)"

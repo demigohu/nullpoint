@@ -14,9 +14,10 @@ const MAGIC: [u8; 4] = [0x56, 0x28, 0xf6, 0xc6];
 
 #[near]
 #[derive(BorshStorageKey)]
+/// Generation-prefixed so `reinit` starts empty on the same account (see the vault).
 enum Key {
-    Balances,
-    Nonces,
+    Balances(u8),
+    Nonces(u8),
 }
 
 #[near(contract_state)]
@@ -57,12 +58,14 @@ enum Intent {
 impl Contract {
     #[init]
     pub fn new(owner: AccountId) -> Self {
-        Self {
-            owner,
-            salt: env::random_seed()[..4].try_into().unwrap(),
-            balances: LookupMap::new(Key::Balances),
-            nonces: LookupSet::new(Key::Nonces),
-        }
+        Self::fresh(0, owner)
+    }
+
+    #[private]
+    #[init(ignore_state)]
+    pub fn reinit(generation: u8, owner: AccountId) -> Self {
+        require!(generation > 0, "use a new generation");
+        Self::fresh(generation, owner)
     }
 
     /// NEP-141 deposit. `msg` is the receiver account inside the verifier (like intents.near).
@@ -79,6 +82,17 @@ impl Contract {
 
     pub fn mt_batch_balance_of(&self, account_id: String, token_ids: Vec<String>) -> Vec<U128> {
         token_ids.iter().map(|t| U128(self.balance(&account_id, t))).collect()
+    }
+
+    /// Same signature as intents.near: lets a keeper tell whether a signed intent already executed.
+    pub fn is_nonce_used(&self, account_id: String, nonce: String) -> bool {
+        use base64::Engine;
+        let n: [u8; 32] = base64::engine::general_purpose::STANDARD
+            .decode(&nonce)
+            .ok()
+            .and_then(|b| b.try_into().ok())
+            .expect("bad nonce");
+        self.nonces.contains(&(account_id, n))
     }
 
     pub fn current_salt(&self) -> String {
@@ -130,6 +144,15 @@ impl Contract {
 }
 
 impl Contract {
+    fn fresh(g: u8, owner: AccountId) -> Self {
+        Self {
+            owner,
+            salt: env::random_seed()[..4].try_into().unwrap(),
+            balances: LookupMap::new(Key::Balances(g)),
+            nonces: LookupSet::new(Key::Nonces(g)),
+        }
+    }
+
     fn balance(&self, account: &str, token: &str) -> u128 {
         self.balances.get(&(account.parse().expect("bad account"), token.to_string())).copied().unwrap_or(0)
     }

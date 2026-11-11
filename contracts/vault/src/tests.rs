@@ -52,7 +52,7 @@ fn vault() -> Contract {
             max_slippage_bps: 150,
             margin_slippage_bps: 300,
             hedge_band_bps: 200,
-            max_funding_bps: 300,
+            max_report_drift_bps: 100,
             dust_usdc: U128(500_000),
             max_price_age_s: 120,
             max_nav_age_s: 600,
@@ -217,4 +217,31 @@ fn mpc_response_converts_to_intents_signature() {
         "recovery_id": raw[64],
     });
     assert_eq!(intents_signature(&mpc.to_string()), expected);
+}
+
+#[test]
+fn account_value_is_checked_against_the_last_report() {
+    let mut v = priced_vault();
+    let a = v.assets[0].clone();
+    let value = |q: u128, out: u128| q * out / a.price_in.0;
+    // Last accepted report: 27_000 sat short, account 50 USDC, margin 50 sent.
+    v.margin_net = 50_000_000;
+    v.account_value = 50_000_000;
+    v.positions = vec![Position { symbol: "BTC".into(), size: U128(27_000), entry_notional: U128(value(27_000, a.price_out.0)) }];
+    v.last_report = Some((v.margin_net, v.assets.iter().map(|x| (x.price_in, x.price_out)).collect()));
+
+    // Parked since: short closed, spot sold. Funding earned in between (0.4 USDC) sits in the account.
+    // The old cumulative check paused here once the position shrank; this one accepts it.
+    let parked = v.check_and_value(&[], 50_400_000, &[U128(20_000_000), U128(0), U128(0)]);
+    assert!(parked.is_ok(), "{parked:?}");
+
+    // Price falls 10% with the short still open: the short's gain explains the higher account value.
+    let gain = value(27_000, a.price_out.0) / 10;
+    v.assets[0].price_out = U128(a.price_out.0 * 9 / 10);
+    let hedged = vec![Position { symbol: "BTC".into(), size: U128(27_000), entry_notional: U128(value(27_000, a.price_out.0)) }];
+    assert!(v.check_and_value(&hedged, 50_000_000 + gain, &[U128(0), U128(27_000), U128(0)]).is_ok());
+
+    // A keeper reporting 5 USDC that nothing explains is rejected.
+    let err = v.check_and_value(&hedged, 55_000_000 + gain, &[U128(0), U128(27_000), U128(0)]).unwrap_err();
+    assert!(err.contains("account value"), "{err}");
 }
