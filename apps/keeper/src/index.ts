@@ -27,6 +27,7 @@ const keeper = signerFromEnv(NET, "KEEPER");
 const solver = signerFromEnv(NET, "SOLVER"); // testnet: plays 1Click on the mock verifier
 const DEFAULT_TARGET = "BTC";
 const MIN_TRADE_USDC = 12_000_000n; // Hyperliquid rejects orders under $10, so spot moves in hedgeable chunks
+const MAX_WITHDRAWALS_PER_CYCLE = 5; // each needs an MPC signature (~15s)
 const MARGIN_TOL_USDC = 5_000_000n; // margin drift tolerated before moving USDC (1Click minimum is 0.5)
 const PRICE_SAMPLE_USDC = 1_000_000n; // quote ~1 USDC worth of each asset for pricing
 const ROTATION_COST_BPS = 40; // swap (~30 bps) + closing and opening shorts (~2 x 4.5 bps)
@@ -185,8 +186,8 @@ async function cycle() {
   const idle = balances[0]! - BigInt(state.owed_usdc);
   const spotValue = ASSETS.reduce((s, _, i) => s + usdValue(i), 0n);
   const navPerShare = state.snapshot && BigInt(state.total_shares) > 0n ? Number(state.snapshot.nav) / Number(state.total_shares) : 1;
-  const queued = (await view<[number, { shares: string; status: string }][]>(NET, VAULT, "get_withdrawals", { from: "0", limit: 500 }))
-    .filter(([, w]) => w.status === "queued" || w.status === "failed");
+  const withdrawals = await view<[number, { shares: string; status: string }][]>(NET, VAULT, "get_withdrawals", { from: "0", limit: 500 });
+  const queued = withdrawals.filter(([, w]) => w.status === "queued" || w.status === "failed");
   const reserve = queued.reduce((s, [, w]) => s + BigInt(Math.ceil(Number(w.shares) * navPerShare)), 0n);
   const equity = idle + spotValue + hlValue - reserve;
   const L = BigInt(p.leverage);
@@ -198,11 +199,29 @@ async function cycle() {
   const swapSlip = { slippageTolerance: 50, ...side }; // within the contract's max_slippage_bps of the oracle price
   const hlUsdc = state.config.hl_usdc_asset as string;
 
-  const [qid, qw] = queued[0] ?? [];
-  if (qw && idle >= BigInt(Math.ceil(Number(qw.shares) * navPerShare))) {
+  // Withdrawals first: finish any signed-but-unexecuted payout (e.g. after a restart), then pay the
+  // queue in order while idle USDC covers it. Whatever isn't covered becomes `reserve` above, so the
+  // moves below unwind toward it and the rest is paid next cycle.
+  for (const [id] of withdrawals.filter(([, w]) => w.status === "signed")) {
+    try {
+      log(`paid withdrawal #${id} (tx ${(await keeperCall("execute_withdraw", { id }, 200)).tx})`);
+    } catch (e) {
+      log(`withdrawal #${id} execute failed, will re-sign:`, (e as Error).message.slice(0, 160));
+    }
+  }
+  let budget = idle, paid = 0;
+  for (const [id, w] of queued) {
+    const value = BigInt(Math.ceil(Number(w.shares) * navPerShare));
+    if (value > budget || paid >= MAX_WITHDRAWALS_PER_CYCLE) break; // FIFO: don't let small ones jump the line
     const salt = await view<string>(NET, VERIFIER, "current_salt");
-    await keeperCall("fulfill_withdraw", { id: qid, salt_hex: salt }, 300);
-    log(`paid withdrawal #${qid} (tx ${(await keeperCall("execute_withdraw", { id: qid }, 200)).tx})`);
+    await keeperCall("fulfill_withdraw", { id, salt_hex: salt }, 300);
+    log(`paid withdrawal #${id} (tx ${(await keeperCall("execute_withdraw", { id }, 200)).tx})`);
+    budget -= value;
+    paid++;
+  }
+
+  if (paid > 0) {
+    // State changed under the numbers above; rebalance next cycle.
   } else if (stray >= 0) {
     const value = usdValue(stray);
     const amount = value > cap ? (balances[stray + 1]! * cap) / value : balances[stray + 1]!;

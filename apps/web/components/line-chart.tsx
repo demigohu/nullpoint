@@ -75,7 +75,7 @@ export function LineChart({
           </g>
         ))}
         {[xs[0]!, xs[Math.floor(xs.length / 2)]!, xs.at(-1)!].map((v, i) => (
-          <text key={v} x={x(v)} y={H - 8} textAnchor={["start", "middle", "end"][i]} fontSize={11} fill="var(--text-3)">
+          <text key={v} x={x(v)} y={H - 8} textAnchor={(["start", "middle", "end"] as const)[i]} fontSize={11} fill="var(--text-3)">
             {formatX(v)}
           </text>
         ))}
