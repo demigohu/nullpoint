@@ -8,7 +8,7 @@ import { base58 } from "@scure/base";
 import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
 import { privateKeyToAccount } from "viem/accounts";
 import { assetByToken, fromUsdc, hlInfo, signedMessage, toUsdc, type QuoteResponse } from "@nullpoint/core";
-import { mustCall } from "@nullpoint/core/node";
+import type { Signer } from "./chain.ts";
 
 const FEE_BPS = 30n;
 const keyFile = (f: string) => JSON.parse(readFileSync(new URL(`../../../.keys/${f}`, import.meta.url), "utf8"));
@@ -19,7 +19,7 @@ const privateKey = createPrivateKey({
   type: "pkcs8",
 });
 // The solver's Hyperliquid testnet wallet: receives margin pulled from the vault, sends margin to it.
-const solver = privateKeyToAccount(keyFile("mock-solver-hl.json").privateKey);
+const solver = privateKeyToAccount((process.env.SOLVER_HL_PRIVATE_KEY ?? keyFile("mock-solver-hl.json").privateKey) as `0x${string}`);
 const solverExchange = new ExchangeClient({ transport: new HttpTransport({ isTestnet: true }), wallet: solver });
 
 const isHl = (asset: string) => asset.startsWith("1cs_v1:hypercore:");
@@ -64,7 +64,7 @@ export async function quote(req: Record<string, any>): Promise<QuoteResponse> {
 }
 
 /** Solver side of a quote whose deposit already happened (intent executed, or sendAsset posted). */
-export async function fill(owner: string, verifier: string, r: QuoteResponse) {
+export async function fill(solverNear: Signer, verifier: string, r: QuoteResponse) {
   const q = r.quoteRequest;
   if (isHl(q.destinationAsset)) {
     // Margin out: deliver USDC to the vault's Hyperliquid perp balance, as 1Click does
@@ -72,7 +72,7 @@ export async function fill(owner: string, verifier: string, r: QuoteResponse) {
     await deliverMargin(q.recipient, Number(r.quote.amountOut) / 1e8);
     return;
   }
-  await mustCall(owner, verifier, "solver_credit", { account_id: q.recipient, token_id: q.destinationAsset, amount: r.quote.amountOut }, { gas: 30 });
+  await solverNear.call(verifier, "solver_credit", { account_id: q.recipient, token_id: q.destinationAsset, amount: r.quote.amountOut }, { gas: 30 });
 }
 
 /** Solver pays `usd` of perp USDC to `destination`, topping its own perp balance up from spot first. */

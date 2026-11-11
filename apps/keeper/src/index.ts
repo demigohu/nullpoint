@@ -5,7 +5,9 @@
 //   4. size each Hyperliquid short to its spot (agent wallet)
 //   5. report the Hyperliquid side; the contract checks it and recomputes NAV
 //   node src/index.ts [--once]
-//   env: OWNER, INTERVAL_S (60), STRATEGIST_INTERVAL_MIN (30), NEARAI_API_KEY,
+//   env: KEEPER_ACCOUNT/KEEPER_PRIVATE_KEY (function-call key on the vault), HL_AGENT_PRIVATE_KEY,
+//        SOLVER_ACCOUNT/SOLVER_PRIVATE_KEY (testnet mock 1Click), OWNER, INTERVAL_S (60),
+//        STRATEGIST_INTERVAL_MIN (30), NEARAI_API_KEY,
 //        STRATEGIST=rule to skip the LLM; DEMO_FUNDING='{"NEAR":60}' and DEMO_MIN_HOLD_HOURS=0 to stage a rotation on testnet
 import { readFileSync } from "node:fs";
 import { ExchangeClient, HttpTransport, InfoClient } from "@nktkas/hyperliquid";
@@ -15,12 +17,14 @@ import {
   postSignedAction, signedMessage as msg, view, type Context, type Decision, type Market,
 } from "@nullpoint/core";
 import { askStrategist } from "@nullpoint/core/strategist";
-import { mustCall } from "@nullpoint/core/node";
+import { signerFromEnv } from "./chain.ts";
 import * as oneclick from "./mock1click.ts";
 
 const NET = "testnet";
 const OWNER = process.env.OWNER ?? "nullpoint.testnet";
-const [VAULT, VERIFIER, KEEPER] = ["vault", "verifier", "keeper"].map((p) => `${p}.${OWNER}`);
+const [VAULT, VERIFIER] = ["vault", "verifier"].map((p) => `${p}.${OWNER}`);
+const keeper = signerFromEnv(NET, "KEEPER");
+const solver = signerFromEnv(NET, "SOLVER"); // testnet: plays 1Click on the mock verifier
 const DEFAULT_TARGET = "BTC";
 const MIN_TRADE_USDC = 12_000_000n; // Hyperliquid rejects orders under $10, so spot moves in hedgeable chunks
 const MARGIN_TOL_USDC = 5_000_000n; // margin drift tolerated before moving USDC (1Click minimum is 0.5)
@@ -31,12 +35,14 @@ const RECORD_HOLD_EVERY_MS = 3 * 3_600_000; // HOLDs are recorded on-chain at mo
 const DEMO_FUNDING: Record<string, number> = JSON.parse(process.env.DEMO_FUNDING ?? "{}");
 const LIMITS_USED = { ...LIMITS, ...(process.env.DEMO_MIN_HOLD_HOURS ? { minHoldHours: Number(process.env.DEMO_MIN_HOLD_HOURS) } : {}) };
 
-const agent = privateKeyToAccount(JSON.parse(readFileSync(new URL("../../../.keys/hl-agent.json", import.meta.url), "utf8")).privateKey);
+const agent = privateKeyToAccount(
+  (process.env.HL_AGENT_PRIVATE_KEY ?? JSON.parse(readFileSync(new URL("../../../.keys/hl-agent.json", import.meta.url), "utf8")).privateKey) as `0x${string}`,
+);
 const transport = new HttpTransport({ isTestnet: true });
 const info = new InfoClient({ transport });
 const exchange = new ExchangeClient({ transport, wallet: agent });
 
-const keeperCall = (method: string, args: object, gas = 100) => mustCall(KEEPER, VAULT, method, args, { gas, legacy: true });
+const keeperCall = (method: string, args: object, gas = 100) => keeper.call(VAULT, method, args, { gas });
 const log = (...a: unknown[]) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
 async function retry<T>(fn: () => Promise<T>, tries = 4): Promise<T> {
@@ -127,9 +133,9 @@ async function moveViaQuote(req: Record<string, unknown>) {
     if (res?.status !== "ok") throw new Error(`Hyperliquid rejected the vault's sendAsset: ${JSON.stringify(res)}`);
   } else {
     // Testnet: the vault-signed intent goes to the mock verifier (mainnet: 1Click /v0/submit-intent).
-    await mustCall(KEEPER, VERIFIER, "execute_intents", { signed: [{ standard: "erc191", payload: s.payload, signature: mpcToIntentsSignature(s.signature) }] }, { gas: 100, legacy: true });
+    await solver.call(VERIFIER, "execute_intents", { signed: [{ standard: "erc191", payload: s.payload, signature: mpcToIntentsSignature(s.signature) }] }, { gas: 100 });
   }
-  await oneclick.fill(OWNER, VERIFIER, q);
+  await oneclick.fill(solver, VERIFIER, q);
   return tx.tx;
 }
 
@@ -137,7 +143,7 @@ async function cycle() {
   const state = await view(NET, VAULT, "get_state");
   const { vault_address: vaultAddress, usdc_token_id: usdcToken } = state.config;
   if (state.paused) return log("vault paused, skipping");
-  if (BigInt(state.pending_usdc) > 0n) log("swept deposits, tx", (await mustCall(KEEPER, VAULT, "sweep", {}, { gas: 150, legacy: true })).tx);
+  if (BigInt(state.pending_usdc) > 0n) log("swept deposits, tx", (await keeperCall("sweep", {}, 150)).tx);
   const side = { refundTo: vaultAddress, refundType: "INTENTS", recipient: vaultAddress, recipientType: "INTENTS", depositType: "INTENTS" };
   const nowMs = Date.now();
 
@@ -193,7 +199,7 @@ async function cycle() {
   if (qw && idle >= BigInt(Math.ceil(Number(qw.shares) * navPerShare))) {
     const salt = await view<string>(NET, VERIFIER, "current_salt");
     await keeperCall("fulfill_withdraw", { id: qid, salt_hex: salt }, 300);
-    log(`paid withdrawal #${qid} (tx ${(await mustCall(KEEPER, VAULT, "execute_withdraw", { id: qid }, { gas: 200, legacy: true })).tx})`);
+    log(`paid withdrawal #${qid} (tx ${(await keeperCall("execute_withdraw", { id: qid }, 200)).tx})`);
   } else if (stray >= 0) {
     const value = usdValue(stray);
     const amount = value > cap ? (balances[stray + 1]! * cap) / value : balances[stray + 1]!;
