@@ -3,10 +3,9 @@
 // colors, animations), the 7-bit scroll readout and the Δ readout. Identical on every page.
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useMotionValueEvent, useScroll } from "motion/react";
 import type { Network } from "@nullpoint/core";
-import { NET_COOKIE } from "@/lib/config";
 import type { Mode } from "@/lib/modes";
 import { AccountMenu, seg } from "@/components/account-menu";
 
@@ -29,32 +28,19 @@ export type HudLive = { symbol: string | null; delta: number; paused: boolean } 
 
 export function Hud({ network, liveMode, live }: { network: Network; liveMode: Mode; live: HudLive }) {
   const path = usePathname();
-  const router = useRouter();
   const [menu, setMenu] = useState(false);
 
   useEffect(() => setMenu(false), [path]);
 
-  const setNet = (n: Network) => {
-    document.cookie = `${NET_COOKIE}=${n}; path=/; max-age=31536000; samesite=lax`;
-    router.refresh();
-  };
-
-  const net = (
-    <div role="group" aria-label="Network" className="flex border border-tc bg-fc">
-      {(["testnet", "mainnet"] as const).map((n) => (
-        <button key={n} onClick={() => setNet(n)} aria-pressed={network === n} className={seg(network === n)}>
-          {n}
-        </button>
-      ))}
-    </div>
-  );
-
   return (
     <>
       <header className="pointer-events-none fixed inset-x-0 top-0 z-30 flex items-start justify-between gap-3 p-[var(--pad)]">
-        <Link href="/" className="pointer-events-auto bg-fc px-2 py-1 text-[17px] text-tc">
-          <Wordmark />
-        </Link>
+        <div className="pointer-events-auto flex flex-wrap items-center gap-2">
+          <Link href="/" className="bg-fc px-2 py-1 text-[17px] text-tc">
+            <Wordmark />
+          </Link>
+          {live && path !== "/" && <Delta live={live} />}
+        </div>
         <nav className="pointer-events-auto flex flex-wrap items-center justify-end gap-2">
           <div className="hidden items-center gap-2 lg:flex">
             <div className="flex border border-tc bg-fc">
@@ -64,7 +50,6 @@ export function Hud({ network, liveMode, live }: { network: Network; liveMode: M
                 </Link>
               ))}
             </div>
-            {net}
           </div>
           <AccountMenu network={network} liveMode={liveMode} />
           <button onClick={() => setMenu(true)} className={`${seg(false)} border border-tc bg-fc lg:hidden`} aria-expanded={menu} aria-controls="menu">
@@ -84,12 +69,10 @@ export function Hud({ network, liveMode, live }: { network: Network; liveMode: M
               {l.label}
             </Link>
           ))}
-          <div className="mt-auto">{net}</div>
         </div>
       )}
 
       <Bits />
-      {live && path !== "/" && <Delta live={live} />}
     </>
   );
 }
@@ -113,7 +96,7 @@ function Bits() {
 /** Spot minus short for the active coin; near zero means fully hedged. */
 function Delta({ live }: { live: NonNullable<HudLive> }) {
   return (
-    <div className={`fixed bottom-[var(--pad)] right-[var(--pad)] z-20 hidden px-2 py-1.5 font-mono text-[12px] md:block ${live.paused ? "bg-alarm text-fc" : "panel"}`}>
+    <div title="Coin held minus the short. Near zero means fully hedged." className={`px-2 py-1.5 font-mono text-[12px] ${live.paused ? "bg-alarm text-fc" : "panel"}`}>
       {live.paused ? "vault paused" : live.symbol ? `Δ ${live.delta >= 0 ? "+" : "−"}${Math.abs(live.delta).toFixed(4)} ${live.symbol}` : "Δ 0 · parked in USDC"}
     </div>
   );

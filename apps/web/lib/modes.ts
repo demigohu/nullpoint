@@ -15,6 +15,16 @@ export const modeOf = (symbol: string | null | undefined): Mode => {
   return m === "btc" || m === "eth" || m === "near" ? m : "park";
 };
 
+/**
+ * The coin the vault is committed to: the last accepted ROTATE/RESUME/PARK decision, BTC before any
+ * (mirrors the keeper's plan()). Positions alone would flicker to "parked" while a withdrawal briefly
+ * closes the short.
+ */
+export const targetMode = (decisions: { accepted: boolean; action: string; target: string | null }[]): Mode => {
+  const last = decisions.filter((d) => d.accepted && ["ROTATE", "RESUME", "PARK"].includes(d.action)).at(-1);
+  return !last ? "btc" : last.action === "PARK" ? "park" : modeOf(last.target);
+};
+
 const PREVIEW_KEY = "np_preview";
 
 /** Switches the page's duotone. `preview` is remembered for the session; null returns to live. */

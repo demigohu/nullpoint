@@ -1,23 +1,28 @@
 "use client";
-// Wallet button and its menu (DESIGN.md §4): test USDC (testnet), color mode, animations, disconnect.
-// Disconnected, the button connects directly and a small settings button holds mode and animations.
+// Wallet button and its menu (DESIGN.md §4): test USDC (testnet), network, color mode, animations,
+// disconnect. Disconnected, the button connects directly and a settings button holds the rest.
+// Also follows the live vault: when it rotates, the site's colors change with a wave.
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useNearWallet } from "near-connect-hooks";
 import { CaretDown, SlidersHorizontal } from "@phosphor-icons/react";
 import type { Network } from "@nullpoint/core";
-import { NETS, links } from "@/lib/config";
-import { MODES, setMode, storedPreview, type Mode } from "@/lib/modes";
+import { NET_COOKIE, NETS, links } from "@/lib/config";
+import { MODES, setMode, storedPreview, targetMode, type Mode } from "@/lib/modes";
 
 const ORDER: Mode[] = ["btc", "eth", "near", "park"];
 const TGAS = (n: number) => String(n * 1e12);
+const POLL_MS = 60_000;
 export const seg = (on: boolean) => `h-[var(--hud)] px-3 font-mono text-[12px] tracking-[0.12em] uppercase ${on ? "bg-tc text-fc" : "text-tc"}`;
 
 /** Tells open panels (balances in /app) that the wallet changed. */
 export const announceBalances = () => window.dispatchEvent(new Event("np:balances"));
 
 export function AccountMenu({ network, liveMode }: { network: Network; liveMode: Mode }) {
-  const { signedAccountId, signIn, signOut, loading, callFunctionRaw } = useNearWallet();
+  const { signedAccountId, signIn, signOut, loading, callFunctionRaw, viewFunction } = useNearWallet();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [live, setLive] = useState<Mode>(liveMode);
   const [mode, setLocal] = useState<Mode>(liveMode);
   const [paused, setPaused] = useState(false);
   const [mint, setMint] = useState<{ state: "busy" | "done" | "error"; text: string; hash?: string } | null>(null);
@@ -28,11 +33,32 @@ export function AccountMenu({ network, liveMode }: { network: Network; liveMode:
   // Restore a session preview and the pause choice after hydration.
   useEffect(() => {
     document.documentElement.dataset.live = liveMode;
+    setLive(liveMode);
     const p = storedPreview();
-    pick(p && p !== liveMode ? p : null, false);
+    pick(p && p !== liveMode ? p : null, false, liveMode);
     setPaused(document.documentElement.dataset.paused === "1");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveMode]);
+
+  // Follow the vault: a new accepted rotation changes the colors without a reload.
+  useEffect(() => {
+    if (!net.deployed) return;
+    const t = setInterval(async () => {
+      if (document.hidden) return;
+      try {
+        const d = (await viewFunction({ contractId: net.vault, method: "get_decisions", args: { from: "0", limit: 500 } })) as [number, Parameters<typeof targetMode>[0][number]][];
+        const m = targetMode(d.map(([, x]) => x));
+        if (m === document.documentElement.dataset.live) return;
+        document.documentElement.dataset.live = m;
+        setLive(m);
+        if (!storedPreview()) pick(null, false, m);
+        window.dispatchEvent(new Event("np:rotate"));
+        setAnnounce(m === "park" ? "The vault parked in USDC." : `The vault rotated to ${MODES[m].label}.`);
+      } catch {}
+    }, POLL_MS);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [net, viewFunction]);
 
   // Close on outside click and Escape; return focus to the trigger.
   useEffect(() => {
@@ -51,12 +77,18 @@ export function AccountMenu({ network, liveMode }: { network: Network; liveMode:
     };
   }, [open]);
 
-  function pick(m: Mode | null, say = true) {
+  function pick(m: Mode | null, say = true, current = live) {
     setMode(m);
-    const next = m ?? liveMode;
+    const next = m ?? current;
     setLocal(next);
-    if (say) setAnnounce(next === liveMode ? `Back to the live vault: ${MODES[next].label}` : `Previewing ${MODES[next].label}`);
+    if (say) setAnnounce(next === current ? `Back to the live vault: ${MODES[next].label}` : `Previewing ${MODES[next].label}`);
   }
+
+  const setNet = (n: Network) => {
+    document.cookie = `${NET_COOKIE}=${n}; path=/; max-age=31536000; samesite=lax`;
+    setOpen(false);
+    router.refresh();
+  };
 
   const togglePause = () => {
     const next = !paused;
@@ -119,11 +151,25 @@ export function AccountMenu({ network, liveMode }: { network: Network; liveMode:
           )}
 
           <div className="border-b border-tc px-4 py-3">
+            <p className="font-mono text-[11px] uppercase tracking-[0.2em]">Network</p>
+            <div role="radiogroup" aria-label="Network" className="mt-2 grid grid-cols-2 border border-tc">
+              {(["testnet", "mainnet"] as const).map((n) => (
+                <button key={n} role="menuitemradio" aria-checked={network === n} onClick={() => setNet(n)} className={seg(network === n)}>
+                  {n}
+                </button>
+              ))}
+            </div>
+            {!NETS.mainnet.deployed && <p className="mt-2 text-[12px] leading-[1.4]">Mainnet opens after launch; until then it shows live market data only.</p>}
+          </div>
+
+          <div className="border-b border-tc px-4 py-3">
             <p className="font-mono text-[11px] uppercase tracking-[0.2em]">Colors</p>
-            <p className="mt-1 text-[12px] leading-[1.4]">They follow the coin the vault holds ({MODES[liveMode].label === "0" ? "parked" : MODES[liveMode].label}). Preview another:</p>
+            <p className="mt-1 text-[12px] leading-[1.4]">
+              They follow the coin the vault holds ({live === "park" ? "parked in USDC" : MODES[live].label}) and change when it rotates. Preview another:
+            </p>
             <div role="radiogroup" aria-label="Color mode" className="mt-2 grid grid-cols-4 border border-tc">
               {ORDER.map((m) => (
-                <button key={m} role="menuitemradio" aria-checked={mode === m} onClick={() => pick(m === liveMode ? null : m)} className={`${seg(mode === m)} px-0`}>
+                <button key={m} role="menuitemradio" aria-checked={mode === m} onClick={() => pick(m === live ? null : m)} className={`${seg(mode === m)} px-0`}>
                   {MODES[m].label}
                 </button>
               ))}

@@ -38,10 +38,14 @@ export function FieldCanvas({ longShare = 0.5, speed = 0.6, cell, interactive, m
       if (!field.current?.colors) f.glyphs = MODES[(document.documentElement.dataset.mode as Mode) ?? "park"].glyphs;
     });
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-mode"] });
+    // The vault rotated (account-menu.tsx): sweep the new colors across.
+    const rotate = () => f.wave();
+    window.addEventListener("np:rotate", rotate);
     const unregister = register(f);
     onReady?.(f);
     return () => {
       unregister();
+      window.removeEventListener("np:rotate", rotate);
       ro.disconnect();
       io.disconnect();
       mo.disconnect();

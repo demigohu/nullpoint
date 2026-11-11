@@ -5,7 +5,7 @@ import { cache } from "react";
 import { cookies } from "next/headers";
 import { ASSETS, hlInfo, view, type Network } from "@nullpoint/core";
 import { DEFAULT_NET, NET_COOKIE, NETS, type NetConfig } from "./config";
-import { modeOf } from "./modes";
+import { targetMode } from "./modes";
 
 export async function currentNet(): Promise<NetConfig> {
   const n = (await cookies()).get(NET_COOKIE)?.value as Network | undefined;
@@ -61,7 +61,7 @@ export const vaultOverview = cache(async (c: NetConfig) => {
   const longUsd = spot.reduce((s, x) => s + x.usd, 0);
   const shortUsd = shorts.reduce((s, p) => s + Math.abs(Number(p.positionValue)), 0);
   const hedge = {
-    mode: modeOf(symbol),
+    mode: targetMode(decisions),
     symbol,
     longShare: longUsd + shortUsd > 0 ? longUsd / (longUsd + shortUsd) : 0.5,
     delta: symbol ? (spot.find((x) => x.symbol === symbol)?.qty ?? 0) + Number(shorts.find((p) => p.coin === symbol)?.szi ?? 0) : 0,

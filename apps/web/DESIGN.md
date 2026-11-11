@@ -40,9 +40,11 @@ down by animation.
 ## 1. Modes (color)
 
 The site is always in exactly one **mode**. A mode is a duotone (`--t` sign color, `--f` ground
-color) plus a glyph pair. By default the mode follows the vault's live active asset
-(`get_state` → active leg). The HUD mode switcher lets a visitor preview the others. Their pick is
-kept for the session only, and the HUD marks it as `preview`.
+color) plus a glyph pair. By default the mode follows the coin the vault is committed to: the last
+accepted ROTATE/RESUME/PARK decision (`targetMode`, the same rule as the keeper). Positions alone
+would flicker to PARK while a withdrawal briefly closes the short. Open pages check every 60 s, and a
+rotation changes the colors live with the field's wave. The mode never cycles on a timer, so the
+color always means something. The account menu lets a visitor preview another mode for the session.
 
 | Mode | Shown when | `--t` sign | `--f` ground | Glyphs (long / short) | Contrast |
 |---|---|---|---|---|---|
@@ -169,27 +171,26 @@ The implementation lives in `components/field/`:
 The HUD is fixed and identical on every page. All controls are Mono and sharp, `--hud` tall, with a
 1px `--t` border.
 
-- **Top left:** the null**Point** wordmark, which links home.
+- **Top left:** the null**Point** wordmark, which links home. On app pages the **delta readout**
+  sits next to it: `Δ +0.0021 BTC` (coin held minus the short), Alarm if the vault is paused.
 - **Top right**, in this order:
   - Page links (`Vault`, `Dashboard`, `Proof`).
-  - The network toggle, `testnet | mainnet`.
   - The **account menu**. Connected, the button shows the account ID truncated from the middle and
     opens a dropdown:
     - `Get 100 test USDC` (testnet only), with its explanation and transaction link.
+    - Network: `testnet | mainnet`.
     - Colors: the segmented `BTC | ETH | NEAR | 0` preview (the live coin is named).
     - Animations on/off, which stops all perpetual motion.
     - Disconnect.
   - Disconnected: `Connect wallet` connects directly, and a settings button next to it opens the
-    same dropdown with colors and animations only.
+    same dropdown with network, colors and animations.
   - The dropdown scales from the button's corner: 150 ms, opacity + `scale .97 → 1`, `ease-out`.
     It closes on Escape (focus returns to the button) and on an outside click.
 - **Right edge:** a vertical **7-bit progress readout** made of 7 squares (filled = 1) for the
   scroll percentage in binary, with the decimal value under it rotated 90°. This is the only rotated
   text on the site.
-- **Bottom right**, on app pages: the **delta readout**. It shows `Δ +0.0021 BTC` (spot minus short),
-  scrambling to each new value. It turns Alarm if the vault is paused.
 - **Mobile (< 768px):**
-  - The page links and the network toggle move into a full-screen menu that opens with a
+  - The page links move into a full-screen menu that opens with a
     CRT-collapse in reverse (see §6).
   - The account menu stays in the bar.
 - No magnetic pull on HUD controls: the account menu hangs from its button and must not drift.
