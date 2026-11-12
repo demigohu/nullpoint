@@ -1,102 +1,59 @@
-import Image, { type ImageProps } from "next/image";
-import { Button } from "@repo/ui/button";
-import styles from "./page.module.css";
+import Link from "next/link";
+import { Doc } from "@/components/doc";
+import { APP_URL } from "@/lib/nav";
 
-type Props = Omit<ImageProps, "src"> & {
-  srcLight: string;
-  srcDark: string;
-};
-
-const ThemeImage = (props: Props) => {
-  const { srcLight, srcDark, ...rest } = props;
-
+export default function Overview() {
   return (
-    <>
-      <Image {...rest} src={srcLight} className="imgLight" />
-      <Image {...rest} src={srcDark} className="imgDark" />
-    </>
-  );
-};
+    <Doc
+      title="NullPoint in five minutes"
+      lede="A USDC vault on NEAR that earns perpetual-futures funding without taking a view on price. It holds a coin and an equal short, so price moves cancel and the hourly funding is what's left. An AI agent runs it, and a smart contract decides where money may go."
+    >
+      <h2>The idea</h2>
+      <p>
+        On Hyperliquid, most traders bet on prices going up, often with borrowed money. To keep that market close to the real price, the crowded side pays the
+        other side every hour. That payment is called funding, and when the longs are crowded it goes to whoever is short.
+      </p>
+      <p>
+        NullPoint takes the short side and also holds the same amount of the coin. If BTC drops 10%, the coin loses what the short gains. If BTC rises, the
+        reverse. Your share's value stays flat and collects the funding. People call this a delta-neutral or basis trade. Usually a fund runs it with its own
+        exchange keys and you trust the fund. Here a contract holds the keys.
+      </p>
 
-export default function Home() {
-  return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <ThemeImage
-          className={styles.logo}
-          srcLight="turborepo-dark.svg"
-          srcDark="turborepo-light.svg"
-          alt="Turborepo logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol>
-          <li>
-            Get started by editing <code>apps/docs/app/page.tsx</code>
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+      <h2>What makes it different</h2>
+      <ul>
+        <li>
+          <b>The contract owns the exchange account.</b> Through NEAR Chain Signatures, the vault contract controls one Ethereum-style address. That address is
+          both its NEAR Intents account (where the coins sit) and its Hyperliquid account (where the short lives). Nothing leaves either account unless the
+          contract asks NEAR's signers to sign it.
+        </li>
+        <li>
+          <b>The agent can trade and nothing else.</b> The bot that runs the vault holds a Hyperliquid key that can place orders but can't withdraw or send, plus a
+          NEAR key that can only call the vault contract.
+        </li>
+        <li>
+          <b>Every swap is checked on-chain.</b> The agent brings signed 1Click quotes. The contract verifies 1Click's signature, insists the vault is the
+          recipient, checks the price against its own oracle and a per-swap cap, and only then builds and signs the transaction itself.
+        </li>
+        <li>
+          <b>The contract prices the vault.</b> It reads coin balances from the Intents contract and prices them with signed quotes. The agent only reports the
+          Hyperliquid side, and a report that's off by more than 1% is rejected.
+        </li>
+        <li>
+          <b>An AI picks the coin, inside hard limits.</b> A model on NEAR AI Cloud, running in a sealed enclave, decides whether to hold, switch between BTC, ETH
+          and NEAR, or wait in USDC. Limits it can't override: three coins only, leverage 1-2x, at most two switches a day, six hours per coin, and a switch
+          must pay back its cost within a week. Every decision is stored on-chain with the enclave's signature.
+        </li>
+      </ul>
 
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new/clone?demo-description=Learn+to+implement+a+monorepo+with+a+two+Next.js+sites+that+has+installed+three+local+packages.&demo-image=%2F%2Fimages.ctfassets.net%2Fe5382hct74si%2F4K8ZISWAzJ8X1504ca0zmC%2F0b21a1c6246add355e55816278ef54bc%2FBasic.png&demo-title=Monorepo+with+Turborepo&demo-url=https%3A%2F%2Fexamples-basic-web.vercel.sh%2F&from=templates&project-name=Monorepo+with+Turborepo&repository-name=monorepo-turborepo&repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fturborepo%2Ftree%2Fmain%2Fexamples%2Fbasic&root-directory=apps%2Fdocs&skippable-integrations=1&teamSlug=vercel&utm_source=create-turbo"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            href="https://turborepo.dev/docs?utm_source"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={styles.secondary}
-          >
-            Read our docs
-          </a>
-        </div>
-        <Button appName="docs" className={styles.secondary}>
-          Open alert
-        </Button>
-      </main>
-      <footer className={styles.footer}>
-        <a
-          href="https://vercel.com/templates?search=turborepo&utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          href="https://turborepo.dev?utm_source=create-turbo"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to turborepo.dev →
-        </a>
-      </footer>
-    </div>
+      <h2>Where to go next</h2>
+      <ul>
+        <li><Link href="/how-it-works">How it works</Link>: the life of a deposit, from USDC to hedge to withdrawal.</li>
+        <li><Link href="/architecture">Architecture</Link>: the contract, the agent, and the services they use.</li>
+        <li><Link href="/security">Security model</Link>: what each party can and can't do, and what can still go wrong.</li>
+        <li><Link href="/verify">Verify it live</Link>: every claim above, checked against the chain when you open the page.</li>
+        <li><Link href="/run-it">Run it yourself</Link>: clone, run the demo without keys, or run the whole thing on testnet.</li>
+        <li><a href={APP_URL}>The app</a>: deposit test USDC and watch the agent work on the dashboard.</li>
+      </ul>
+    </Doc>
   );
 }

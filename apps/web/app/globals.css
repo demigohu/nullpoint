@@ -60,6 +60,8 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Component classes live in a layer so Tailwind utilities (hidden, w-full, …) can override them. */
+@layer components {
 /* Mono label in an inverted box. */
 .chip {
   display: inline-block;
@@ -153,6 +155,8 @@ dialog.tx::backdrop { background: color-mix(in srgb, var(--f) 80%, transparent);
 /* Loader: hidden before paint on repeat visits (layout boot script sets data-loaded). */
 :root[data-loaded="1"] .loader { display: none; }
 @media (prefers-reduced-motion: reduce) { .loader { display: none; } }
+
+}
 
 /* Footer marquee: linear, pauses with the HUD pause. */
 @keyframes marquee { to { transform: translateX(-50%); } }

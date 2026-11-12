@@ -7,12 +7,13 @@ import { usePathname } from "next/navigation";
 import { useMotionValueEvent, useScroll } from "motion/react";
 import type { Network } from "@nullpoint/core";
 import type { Mode } from "@/lib/modes";
+import { DOCS_URL } from "@/lib/config";
 import { AccountMenu, seg } from "@/components/account-menu";
 
 const LINKS = [
   { href: "/app", label: "Vault" },
   { href: "/dashboard", label: "Dashboard" },
-  { href: "/proof", label: "Proof" },
+  { href: DOCS_URL, label: "Docs" },
 ];
 
 export function Wordmark({ className = "" }: { className?: string }) {

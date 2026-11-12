@@ -12,6 +12,9 @@
     "attack:llm": "npm run attack:llm -w @nullpoint/scripts --silent",
     "simulate:crash": "npm run simulate:crash -w @nullpoint/scripts --silent",
     "simulate:strategy": "npm run simulate:strategy -w @nullpoint/scripts --silent",
+    "e2e:testnet": "npm run e2e:testnet -w @nullpoint/scripts --silent",
+    "deploy:testnet": "npm run deploy:testnet -w @nullpoint/scripts --silent",
+    "reset:testnet": "npm run reset:testnet -w @nullpoint/scripts --silent",
     "agent": "npm start -w agent"
   },
   "devDependencies": {

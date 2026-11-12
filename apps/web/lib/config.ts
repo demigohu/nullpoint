@@ -39,6 +39,7 @@ export const NETS: Record<Network, NetConfig> = {
 };
 
 export const NET_COOKIE = "np_net";
+export const DOCS_URL = process.env.NEXT_PUBLIC_DOCS_URL ?? "http://localhost:3001";
 export const DEFAULT_NET: Network = (process.env.NEXT_PUBLIC_DEFAULT_NET as Network) ?? "testnet";
 
 export const links = (c: NetConfig) => ({

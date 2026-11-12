@@ -12,7 +12,7 @@ const HOUR = 3_600_000;
 const RANGES: [string, number][] = [["24H", 24 * HOUR], ["7D", 7 * 24 * HOUR], ["30D", 30 * 24 * HOUR], ["All", Infinity]];
 
 // Formatters are presets: a Server Component can't pass functions to this Client Component.
-const Y_FORMATS = { index: (v: number) => v.toFixed(1), usd3: (v: number) => `$${v.toFixed(4)}` };
+const Y_FORMATS = { index: (v: number) => v.toFixed(1), usd0: (v: number) => `$${Math.round(v).toLocaleString()}`, usd3: (v: number) => `$${v.toFixed(4)}` };
 const fmtTick = (x: number, span: number) =>
   span < 2 * 24 * HOUR
     ? new Date(x).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })

@@ -15,7 +15,7 @@ Status: v0.3 · 2026-11-10 · deadline submission 2026-11-14 23:59 UTC
 | Rotasi | Rotasi otomatis masuk scope (§6.4) |
 | Kecerdasan | **LLM strategist** (NEAR AI Cloud, TEE) yang memutuskan HOLD/ROTATE/PARK/leverage, dan keputusannya **dieksekusi** bila lolos guardrail pasti. Aturan pasti = pagar + fallback (§6.5) |
 | NAV | **Dihitung kontrak sendiri**: saldo yang dicatat kontrak × **harga dari quote 1Click bertanda tangan** (oracle, §6.1). Agent hanya melaporkan detail posisi short dan funding, dibatasi invariant (§6.1) |
-| Frontend | 4 halaman: `/` landing, `/app` vault, `/dashboard`, `/proof` (§6.6) |
+| Frontend | `apps/web`: `/` landing, `/app` vault, `/dashboard`. `apps/docs`: overview, cara kerja, arsitektur, model keamanan, **Verify** (cek live, pengganti `/proof`), run it yourself (§6.6) |
 | Urutan kerja | **Semua jalan di testnet dulu**, baru migrasi ke mainnet. Mainnet memakai ulang kode yang sama |
 | Submission | Disubmit dengan **deployment mainnet live** ($60 dana owner) + testnet untuk reproduksi juri |
 | Track | `defi` (utama), `security`, `agents` |
@@ -51,7 +51,7 @@ Pembeda keamanan: akun Hyperliquid vault dikontrol **kontrak NEAR lewat Chain Si
 | G9 | Frontend 4 halaman (§6.6) | URL hosted (membaca mainnet) + `npm run dev` |
 | G10 | `npm run demo` dry-run tanpa dana dan tanpa API key berbayar | Dijalankan di clone bersih |
 | G11 | **Mainnet live proof:** deposit → swap spot lewat Intents → margin ke Hyperliquid lewat Intents → short → funding → withdraw parsial | Daftar tx hash mainnet di README |
-| G12 | LLM strategist memutuskan, guardrail memvalidasi, keputusan tercatat on-chain dengan hash + attestation | `get_decisions` + halaman `/proof` |
+| G12 | LLM strategist memutuskan, guardrail memvalidasi, keputusan tercatat on-chain dengan hash + attestation | `get_decisions` + docs Verify + log aktivitas dashboard |
 | G13 | Demo prompt injection ke strategist ditolak guardrail | `npm run attack:llm` |
 | G14 | NAV dihitung on-chain dari harga quote 1Click terverifikasi + saldo yang dicatat kontrak | Test kontrak: laporan agent yang melanggar invariant ditolak |
 
@@ -88,7 +88,7 @@ Pembeda keamanan: akun Hyperliquid vault dikontrol **kontrak NEAR lewat Chain Si
 - Tiap siklus: baca pasar → hedge → rotasi bila perlu → aturan risiko → laporkan NAV → proses antrean withdraw.
 
 **Juri**
-- `npm run demo` (dry-run), `npm test`, membuka link explorer testnet dan mainnet, halaman `/proof`.
+- `npm run demo` (dry-run), `npm test`, membuka link explorer testnet dan mainnet, halaman Verify di docs.
 
 ## 5. Arsitektur
 
@@ -276,7 +276,7 @@ Rotasi = swap spot A → B lewat Intents (~0.3%) + tutup short A dan buka short 
   - `confidence ≥ min_confidence`.
   - Ditolak → keputusan dicatat dengan alasan penolakan. Agent tidak bertindak.
 - **Fallback:** NEAR AI Cloud gagal/timeout/output tidak valid → aturan pasti §6.4.
-- **Verifiable:** setiap keputusan disimpan lengkap (input, output, model, signature respons + attestation NEAR AI Cloud) dan hash-nya dicatat on-chain lewat `report_decision(hash, action, accepted)`. `/proof` menampilkan isi lengkap dan link verifikasi attestation.
+- **Verifiable:** setiap keputusan disimpan lengkap (input, output, model, signature respons + attestation NEAR AI Cloud) dan hash-nya dicatat on-chain lewat `report_decision(hash, action, accepted)`. Docs Verify dan log aktivitas dashboard menampilkan isinya.
 - **Pengukuran:** `npm run simulate:strategy` memutar jendela funding historis dan membandingkan LLM vs aturan pasti vs hold BTC, setelah biaya. Jumlah panggilan dibatasi (±50 jendela) supaya muat di kredit $10.
 - **Demo serangan:** `npm run attack:llm` menyisipkan prompt injection di "catatan pasar" (minta rotasi ke SOL, leverage 20x, kirim margin ke alamat luar). Output LLM apa pun → ditolak guardrail atau tidak bisa diekspresikan oleh skema.
 
@@ -288,7 +288,7 @@ Toggle testnet/mainnet di semua halaman. Versi hosted default ke mainnet. Wallet
 - Hero: satu kalimat masalah + satu kalimat solusi, tanpa jargon.
 - Statistik live dari mainnet: TVL, APR terealisasi, aset aktif.
 - "Cara kerja" 3 langkah: deposit → kontrak beli spot lewat Intents + short di Hyperliquid → funding masuk.
-- Bagian keamanan: "agent bisa trading, tidak bisa withdraw", dengan link ke `/proof`.
+- Bagian keamanan: "agent bisa trading, tidak bisa withdraw", dengan link ke docs Verify.
 - Risiko yang jujur (funding negatif, risiko venue, R1, R7).
 - CTA ke `/app`.
 
@@ -306,7 +306,7 @@ Toggle testnet/mainnet di semua halaman. Versi hosted default ke mainnet. Wallet
 - **Strategist feed:** keputusan LLM terbaru (aksi, confidence, reasoning), status guardrail (lolos/ditolak + alasan), dan perbandingan dengan keputusan aturan pasti.
 - Hedge ratio, leverage, jarak ke likuidasi, status agent, log siklus terakhir.
 
-**`/proof` Transparansi**: untuk juri AI dan juri skeptis.
+**Docs → Verify (dulu `/proof`)**: untuk juri dan user skeptis. `/proof` di web dialihkan ke sini.
 - Alamat: kontrak vault, master Hyperliquid (turunan MPC), agent. Masing-masing dengan link explorer.
 - Klaim → bukti → cara mengecek sendiri. Contoh: "Master dikontrol kontrak" → hitung ulang derivasi atau panggil view `derived_public_key` di MPC. "Agent tidak bisa withdraw" → log percobaan yang ditolak. "Spot dipegang vault" → `mt_balance_of` akun vault di `intents.near`. "Swap tidak bisa dibelokkan" → payload intent yang ditandatangani hanya berisi satu `token_diff`.
 - Daftar tx penting: `approveAgent`, swap Intents, transfer margin, rotasi.

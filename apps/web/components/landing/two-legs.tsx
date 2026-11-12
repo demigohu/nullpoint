@@ -12,13 +12,11 @@ import { reducedMotion } from "@/lib/scramble";
 gsap.registerPlugin(ScrollTrigger);
 
 type Point = { t: number; btc: number; hedged: number };
-const pct = (v: number, d = 1) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(d)}%`;
+const usd = (v: number) => `$${Math.round(v).toLocaleString()}`;
 
 export function TwoLegs({ bt, longShare }: { bt: Point[]; longShare: number }) {
   const root = useRef<HTMLElement>(null);
   const field = useRef<Field | null>(null);
-  const btcEl = useRef<HTMLSpanElement>(null);
-  const vaultEl = useRef<HTMLSpanElement>(null);
   const btcMove = bt.at(-1)!.btc - 100, hedgedMove = bt.at(-1)!.hedged - 100;
 
   useEffect(() => {
@@ -34,8 +32,6 @@ export function TwoLegs({ bt, longShare }: { bt: Point[]; longShare: number }) {
         scrub: true,
         onUpdate: ({ progress: p }) => {
           field.current?.setCell(64 - 50 * p);
-          btcEl.current!.textContent = pct(btcMove * p);
-          vaultEl.current!.textContent = pct(hedgedMove * p, 2);
         },
       });
       gsap.fromTo(".legs-chart", { clipPath: "inset(50% 0 50% 0)" }, { clipPath: "inset(0% 0 0% 0)", ease: "none", scrollTrigger: { trigger: el, start: "top top", end: "+=110%", scrub: true } });
@@ -67,18 +63,28 @@ export function TwoLegs({ bt, longShare }: { bt: Point[]; longShare: number }) {
           </aside>
         </div>
         <div className="legs-chart panel flex flex-col justify-center p-[var(--pad)] md:col-span-7">
-          <div className="num mb-3 flex flex-wrap gap-x-6 gap-y-1 text-[clamp(1.4rem,2.6vw,2.8rem)] font-bold leading-none tracking-[-0.04em]">
-            <span>BTC <span ref={btcEl}>{pct(btcMove)}</span></span>
-            <span>NullPoint <span ref={vaultEl}>{pct(hedgedMove, 2)}</span></span>
+          <p className="font-mono text-[11px] uppercase tracking-[0.2em]">If you put in $1,000 on {new Date(bt[0]!.t).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</p>
+          <div className="mt-3 grid grid-cols-2 gap-4 border-b border-tc pb-4">
+            <div>
+              <p className="text-[13px]">If you just bought BTC</p>
+              <p className="num text-[clamp(1.8rem,3vw,3rem)] font-bold leading-none tracking-[-0.04em]">{usd(bt.at(-1)!.btc * 10)}</p>
+            </div>
+            <div>
+              <p className="text-[13px]">If you put it in NullPoint</p>
+              <p className="num text-[clamp(1.8rem,3vw,3rem)] font-bold leading-none tracking-[-0.04em]">{usd(bt.at(-1)!.hedged * 10)}</p>
+            </div>
           </div>
-          <LineChart
-            baseline={100}
-            series={[
-              { key: "btc", label: "BTC", dashed: true, points: bt.map((p) => ({ x: p.t, y: p.btc })) },
-              { key: "hedged", label: "NullPoint", points: bt.map((p) => ({ x: p.t, y: p.hedged })) },
-            ]}
-            caption="Simulated on the last 30 days of real Hyperliquid prices and funding, with the vault's two-thirds / one-third split. Fees not included."
-          />
+          <div className="mt-4">
+            <LineChart
+              baseline={1000}
+              yFormat="usd0"
+              series={[
+                { key: "hedged", label: "NullPoint", points: bt.map((p) => ({ x: p.t, y: p.hedged * 10 })) },
+                { key: "btc", label: "Just BTC", dashed: true, points: bt.map((p) => ({ x: p.t, y: p.btc * 10 })) },
+              ]}
+              caption="The NullPoint line is almost flat on purpose: BTC's drop is cancelled by the short, and the slow climb is the funding it collects. The faint dashed line is the $1,000 you started with. Simulated on the last 30 days of real Hyperliquid prices and funding; fees not included."
+            />
+          </div>
         </div>
       </div>
     </section>

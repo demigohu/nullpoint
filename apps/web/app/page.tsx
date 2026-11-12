@@ -9,6 +9,7 @@ import { TwoLegs } from "@/components/landing/two-legs";
 import { Wordmark } from "@/components/hud";
 import { currentNet, fundingRadar, hedgeBacktest, vaultOverview } from "@/lib/data";
 import { MODES } from "@/lib/modes";
+import { DOCS_URL } from "@/lib/config";
 
 // Copy: COPY.md "Landing". Layout and motion: DESIGN.md §7.
 const BUILT_WITH = [
@@ -38,12 +39,29 @@ const RISKS = [
   ["A sharp rally", "A fast jump in price squeezes the short. The agent adds collateral early, but a big enough gap can still liquidate it."],
 ] as const;
 
+const STEPS = [
+  ["Connect a NEAR wallet", "Any NEAR wallet works. Connecting only shares your account name; nothing is signed or sent."],
+  ["Deposit USDC", "You get shares at the vault's current share price, and the agent hedges your money within a minute or so. On testnet, get free test USDC from the account menu."],
+  ["Withdraw whenever you want", "Ask for your USDC back and it lands in your wallet, usually within 1-3 minutes. There's no lockup and no withdrawal fee."],
+] as const;
+
+const faq = (yearly: number): [string, string][] => [
+  ["Is my money safe?", "Your USDC sits in a smart contract on NEAR, and only that contract can sign money out of the vault's accounts. The agent that runs it can trade but can't withdraw. It is still new code that hasn't been audited, so only put in what you're fine testing with."],
+  ["Where does the yield come from?", "From funding: the hourly fee that traders betting on prices going up pay to the traders betting against them. The vault is always on the side that gets paid, with an equal amount of the coin held so price swings cancel."],
+  ["How much can I earn?", `It moves with funding. Over the last 30 days the hedged strategy made about ${yearly.toFixed(1)}% a year in a simulation on real Hyperliquid data. Some weeks it earns nothing, and the dashboard shows the live rate.`],
+  ["When can I get my money back?", "Any time. Your USDC usually arrives within 1-3 minutes. If the agent is ever down for more than 10 minutes, the app lets you finish the withdrawal yourself."],
+  ["What does it cost?", "NullPoint takes no fee. The vault pays swap and trading costs out of its own balance, about 0.4% each time the agent switches coins, which is why it only switches when the extra yield pays that back within a week."],
+  ["Can I lose money?", "Yes. Funding can turn negative, Hyperliquid or a bridge can fail, and a very sharp rally can hurt the short. The risks section above explains each one."],
+  ["Who holds the keys?", "The contract does, through NEAR Chain Signatures. The agent only has a trading key. The owner can pause the vault, change its limits and, in this hackathon build, upgrade the contract. There is no method that sends funds to the owner."],
+];
+
 const title = "wdth-118 text-[clamp(2.2rem,4.6vw,5.4rem)] font-extrabold leading-[0.9] tracking-[-0.045em]";
 
 export default async function Landing() {
   const net = await currentNet();
   const [bt, ov, radar] = await Promise.all([hedgeBacktest(30), vaultOverview(net).catch(() => null), fundingRadar("mainnet").catch(() => [])]);
   const longShare = ov?.hedge.longShare ?? 0.5;
+  const hedgedYear = ((bt.at(-1)!.hedged - bt[0]!.hedged) / bt[0]!.hedged) * 100 * (365 / 30);
 
   return (
     <main>
@@ -51,6 +69,24 @@ export default async function Landing() {
       <Loader />
       <Hero longShare={longShare} coin={ov && ov.hedge.mode !== "park" ? MODES[ov.hedge.mode].label : "BTC"} />
       <TwoLegs bt={bt} longShare={longShare} />
+
+      <section className="grid gap-[var(--pad)] p-[var(--pad)] py-[clamp(4rem,10vw,9rem)] lg:grid-cols-12">
+        <div className="lg:col-span-4">
+          <h2 className={title}>Start in three steps.</h2>
+          <Link href="/app" className="btn mt-8" data-label="Deposit USDC">Deposit USDC</Link>
+        </div>
+        <ol className="lg:col-span-8">
+          {STEPS.map(([h, b], i) => (
+            <li key={h} className="grid gap-2 border-t border-tc py-6 sm:grid-cols-[5rem_1fr] sm:gap-6">
+              <span aria-hidden className="wdth-125 text-[clamp(3rem,5vw,4.5rem)] font-extrabold leading-[0.8] tracking-[-0.05em]">{i + 1}</span>
+              <div>
+                <h3 className="wdth-110 text-[clamp(1.3rem,1.9vw,1.9rem)] font-bold leading-tight tracking-[-0.03em]">{h}</h3>
+                <p className="mt-2 max-w-[56ch] text-[16px] leading-[1.5]">{b}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
       <Cycle liveMode={ov?.hedge.mode ?? "park"} />
       {radar.length > 0 && <Assets radar={radar} active={ov?.hedge.symbol ?? null} />}
 
@@ -83,7 +119,7 @@ export default async function Landing() {
             </ul>
             <p className="num mt-8 text-[13px]">
               Run the attack yourself: <code>npm run attack</code> ·{" "}
-              <Link href="/proof" className="underline underline-offset-2">see the proof ↗</Link>
+              <a href={`${DOCS_URL}/verify`} className="underline underline-offset-2">check it live ↗</a>
             </p>
           </div>
           {GUARDS.map(([h, b]) => (
@@ -95,7 +131,7 @@ export default async function Landing() {
         </div>
       </section>
 
-      <section className="p-[var(--pad)] py-[clamp(4rem,10vw,9rem)]">
+      <section id="risks" className="p-[var(--pad)] py-[clamp(4rem,10vw,9rem)]">
         <h2 className={title}>What can still go wrong</h2>
         <dl className="mt-10 grid gap-x-[var(--pad)] gap-y-8 border-t border-tc pt-8 md:grid-cols-2">
           {RISKS.map(([t, d]) => (
@@ -105,6 +141,22 @@ export default async function Landing() {
             </div>
           ))}
         </dl>
+      </section>
+
+      <section className="grid gap-[var(--pad)] p-[var(--pad)] pb-[clamp(4rem,10vw,9rem)] lg:grid-cols-12">
+        <h2 className={`${title} lg:col-span-4`}>Questions people ask</h2>
+        <div className="lg:col-span-8">
+          {faq(hedgedYear).map(([q, a]) => (
+            <details key={q} className="faq group border-t border-tc">
+              <summary className="flex cursor-pointer list-none items-baseline justify-between gap-6 py-5">
+                <span className="wdth-110 text-[clamp(1.15rem,1.5vw,1.5rem)] font-bold tracking-[-0.03em]">{q}</span>
+                <span aria-hidden className="num text-[1.6rem] leading-none group-open:hidden">+</span>
+                <span aria-hidden className="num hidden text-[1.6rem] leading-none group-open:inline">−</span>
+              </summary>
+              <p className="max-w-[62ch] pb-6 text-[16px] leading-[1.55]">{a}</p>
+            </details>
+          ))}
+        </div>
       </section>
 
       <section className="overflow-hidden border-t border-tc">
