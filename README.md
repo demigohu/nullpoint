@@ -58,13 +58,27 @@ The demo reads the live vaults and checks the main claims. Real output from 12 N
    ✅ blocked WITHDRAW 0xdead  -> unknown action WITHDRAW
 ```
 
-Then `npm test` (needs Rust and `cargo-near` as well): shared-code tests, 25 contract unit tests built on real mainnet 1Click quotes and a real MPC signature, and 2 integration tests on a local NEAR sandbox. Both commands work on a clean clone with no `.env`.
-
 **What to look for:**
 - Step 2: the ✅ means the address that owns the money on Hyperliquid and in NEAR Intents is derived from the contract account itself. No person holds that key.
 - Step 3: change one field of a signed 1Click quote and the contract's check fails. That's what stops the agent from routing a swap to itself.
 - Step 4: a 20% move shifts the vault by under $1, the small part of the coin that isn't hedged yet.
 - Step 5: the AI's answers pass through fixed limits; "withdraw" isn't even an action it can express.
+
+## Every command, and what you should see
+
+The first four need nothing: no wallet, no keys, no `.env`. `npm run demo` and `npm test` were checked on a fresh clone with no `.env` on 12 Nov.
+
+| Do | Needs | You should see |
+|---|---|---|
+| `npm run demo` | Node 24+ | The five checks above, with ✅ on the address match, the 1Click signature, the forged quote and the three blocked AI requests |
+| `npm test` | Node 24+, Rust, `cargo-near` | Every suite passes: core tests (MPC address derivation, strategy limits), the field test, **25** contract unit tests and **2** sandbox integration tests (`test result: ok`). The sandbox tests take about 80 s the first time |
+| `npm run simulate:crash` | Node 24+ | BTC −20% and +20% over 24 h, hour by hour: spot and short PnL cancel, NAV goes from $1000.00 to $1000.16 (down move) and $1000.20 (up move), the difference being funding |
+| `npm run simulate:strategy` | Node 24+ | Three weeks of real Hyperliquid mainnet funding: holding BTC vs the vault's rule, as a yearly rate after the 0.4% switching cost (12 Nov: both 10.09%, no switch worth making). Add `--llm` with a NEAR AI key to include the AI |
+| `npm run dev` | Node 24+ | Web on http://localhost:3000 and docs on http://localhost:3001, reading the live vaults |
+| `npm run attack` | testnet agent keys in `.keys/` | The agent's own keys try four thefts: Hyperliquid `withdraw3`, `usdSend` and `agentSendAsset` to an outside wallet, and a 1Click quote paying an attacker. Four `✅ … rejected` lines, and the vault's Hyperliquid balance unchanged |
+| `npm run attack:llm` | `NEARAI_API_KEY` | 1: the real model reads hostile "market notes" and its answer still passes the limits (TEE-signed: true). 2: a fully compromised model's SOL, 20x and withdraw requests, each `✅ blocked` with the reason |
+| `npm run e2e:testnet` | testnet owner and user keys | Deposit → shares minted → sweep into the Intents stand-in → report sets the NAV → withdrawal signed by NEAR's MPC network and submitted from the user's own account → `E2E OK` |
+| `npm run agent` | `.env` with agent keys | One line per run: prices, decisions (`llm -> HOLD … ACCEPTED`), moves (`shorted BTC …`, `bought BTC with … USDC`) and `NAV … paused false` |
 
 ## What works, and where it's verified
 
@@ -92,17 +106,17 @@ The full mainnet transaction list, step by step: [docs → Mainnet proof](apps/d
 
 ## Judge path
 
-**A. No wallet (5 minutes).** `npm run demo` and `npm test` above. Then open https://docs.nullpoint.fun/verify: six claims about who can move the money, each checked live against both vaults when the page loads, each with the command to repeat it.
+**A. No wallet (5 minutes).** Run `npm run demo` and `npm test` → you see the results in the table above. Then open https://docs.nullpoint.fun/verify → six claims about who can move the money, each marked "checked live: true" against both vaults, each with the command to repeat it.
 
 **B. Testnet, with a NEAR testnet wallet (10 minutes).**
-1. Open https://nullpoint.fun, connect a testnet wallet, and choose **Get 100 test USDC** in the account menu (top right).
-2. **Vault → Deposit.** The review runs the contract's own checks on your numbers (shares, the 0.5% fee, the cap) before your wallet opens. Sign one transaction; your shares appear at once.
-3. **Dashboard.** Within a minute or two the agent sends collateral to Hyperliquid, opens the short and buys the coin. Each step appears in the activity log with its transaction and the exact payload NEAR's signers signed. The hedge gap returns to about zero.
-4. **Vault → Withdraw.** Your withdrawal goes requested → signed → paid, with links to the signing and payout transactions. USDC is back in your wallet in 1-3 minutes.
+1. Open https://nullpoint.fun, connect a testnet wallet, and choose **Get 100 test USDC** in the account menu (top right) → your balance shows 100.00 USDC.
+2. **Vault → Deposit**, enter 50, **Review deposit** → the dialog shows the shares you'll get, the 0.5% fee and that the vault's cap allows it, before your wallet opens. Sign → your shares and value appear at once, with the deposit fee shown separately.
+3. **Dashboard** → within a minute or two the activity log shows "Collateral sent to Hyperliquid", "Opened the … short" and "Bought …", each with its transaction and the payload NEAR's signers signed; the hedge gap returns to about zero.
+4. **Vault → Withdraw**, enter some shares, **Review withdrawal**, sign → the withdrawal shows requested → signed → paid, with links to both transactions, and the USDC is back in your wallet in 1-3 minutes.
 
-**C. Mainnet, read only.** Switch the account menu to mainnet. The dashboard shows the real position; https://docs.nullpoint.fun/mainnet lists every transaction of the first day. Depositing is possible but not needed; the cap is $100.
+**C. Mainnet, read only.** Switch the account menu to mainnet → the dashboard shows the real position (coin in NEAR Intents, short on Hyperliquid, both linked). https://docs.nullpoint.fun/mainnet → the live position and every transaction of the first day. Depositing works but isn't needed; the cap is $100.
 
-**D. Try to break it.** `npm run attack` (needs the testnet agent keys) and `npm run attack:llm` (needs a NEAR AI key). Without keys: `cd contracts && cargo test -p vault` covers forged, redirected and replayed quotes and bad reports.
+**D. Try to break it.** `npm run attack` and `npm run attack:llm` (see the table for what they need and print). Without keys: `cd contracts && cargo test -p vault` → forged, redirected and replayed quotes and bad reports are all refused.
 
 ## How the money moves
 
