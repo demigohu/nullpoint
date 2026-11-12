@@ -18,7 +18,9 @@ const TGAS = (n: number) => String(n * 1e12);
 const fmt = (raw: bigint | string | number, d = 6) => (Number(raw) / 10 ** d).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const ago = (s: number) => (s < 90 ? `${s}s ago` : `${Math.round(s / 60)} min ago`);
 // Max fee at NEAR's minimum gas price (0.0001 NEAR per Tgas); unused gas is refunded.
-const fee = (tgas: number) => `up to ${tgas} Tgas, at most ${(tgas * 0.0001).toFixed(3)} NEAR; unused gas is refunded`;
+// NEAR's minimum gas price is 0.0001 NEAR per Tgas; the wallet only charges what the call uses.
+const fee = (tgas: number) => `less than ${(tgas * 0.0001).toFixed(3)} NEAR from your wallet. Most of it is usually refunded.`;
+const gas = (tgas: number): [string, string] => ["Gas limit", `${tgas} Tgas`];
 
 export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawalCount: number }) {
   const { signedAccountId, signIn, viewFunction } = useNearWallet();
@@ -99,11 +101,13 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
       ["Method", "ft_transfer_call, which sends USDC to the vault and tells it to mint your shares"],
       ["Arguments", `receiver ${net.vault}, amount ${depositUnits} (${fmt(depositUnits)} USDC, 6 decimals)`],
       ["Attached", "1 yoctoNEAR (0.000000000000000000000001 NEAR). The token standard requires it as proof that a person signed."],
-      ["Network fee", fee(100)],
+      gas(100),
     ],
+    fee: fee(100),
     notes: [
-      "If the vault refuses the deposit for any reason, the token contract hands your USDC back in the same transaction.",
-      "Within a minute or so, the agent hedges your USDC: a short on Hyperliquid first, then the coin through NEAR Intents.",
+      "Your shares arrive as soon as your wallet confirms.",
+      "Within a minute or so, the agent puts the USDC to work. You can watch it on the dashboard.",
+      "If the vault can't take the deposit for any reason, your USDC comes straight back.",
     ],
     simulate: async () => {
       // Same math and limits as the vault's ft_on_transfer.
@@ -113,6 +117,7 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
       const age = state.snapshot ? Math.round((Date.now() - state.snapshot.ms) / 1000) : Infinity;
       const p = priceOf(state);
       return {
+        summary: { give: `${fmt(depositUnits)} USDC`, get: `≈${fmt(out)} shares` },
         checks: [
           { label: "You have the USDC", ok: usdc >= depositUnits, detail: `Your wallet holds ${fmt(usdc)} USDC.` },
           { label: "The vault is open", ok: !state.paused, detail: state.paused ? "The vault is paused, so it refuses deposits." : "It isn't paused." },
@@ -150,17 +155,20 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
       ["Method", "request_withdraw, which hands your shares back and queues a USDC payout to you"],
       ["Arguments", `shares ${outUnits} (${fmt(outUnits)} shares, 6 decimals)`],
       ["Attached", "nothing"],
-      ["Network fee", fee(30)],
+      gas(30),
     ],
+    fee: fee(30),
     notes: [
-      "Your shares leave your balance as soon as this lands. The agent then prices them at the share price of that moment, usually within 1-3 minutes, and NEAR's signers sign the USDC payout to your wallet.",
-      "That's the only thing you sign. If the payout waits more than 10 minutes, a button appears so you can finish it yourself.",
+      "Your shares leave your balance right away. The USDC usually lands in your wallet within 1-3 minutes.",
+      "The exact amount uses the share price at the moment the agent pays you, so it can differ by a few cents.",
+      "This is the only thing you sign. If the payout takes more than 10 minutes, a button appears so you can finish it yourself.",
     ],
     simulate: async () => {
       // Same check as the vault's request_withdraw.
       const { shares, state } = await read();
       const p = priceOf(state);
       return {
+        summary: { give: `${fmt(outUnits)} shares`, get: `≈$${fmt(Number(outUnits) * p, 6)} USDC` },
         checks: [
           { label: "You have the shares", ok: outUnits > 0n && outUnits <= shares, detail: `You hold ${fmt(shares)} shares.` },
           { label: "The vault is running", ok: !state.paused, detail: state.paused ? "The vault is paused, so the payout waits until it resumes." : "It isn't paused, so the agent will pick it up." },
@@ -190,10 +198,12 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
       ["Method", "execute_withdraw, which submits the payout NEAR's signers already signed"],
       ["Arguments", `id ${w.id}`],
       ["Attached", "nothing"],
-      ["Network fee", fee(200)],
+      gas(200),
     ],
-    notes: ["Anyone can submit a signed payout, and it can only ever pay you. Normally the agent does this step for you."],
+    fee: fee(200),
+    notes: ["The payout is already approved and can only go to you. Normally the agent sends it; this lets you send it yourself."],
     simulate: async () => ({
+      summary: { give: "nothing", get: `${fmt(w.usdc)} USDC` },
       checks: [{ label: "The payout is signed", ok: w.status === "signed", detail: `Signed for ${fmt(w.usdc)} USDC to ${w.account}.` }],
       changes: [{ label: "Wallet USDC", before: fmt(usdc ?? 0n), after: fmt((usdc ?? 0n) + BigInt(w.usdc)) }],
     }),

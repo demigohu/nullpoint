@@ -121,14 +121,30 @@ mechanism. The giant wordmark carries the brand.
 
 ## `/app` Vault (deposit and withdraw)
 
-Every wallet transaction goes through one dialog (`components/tx-dialog.tsx`) in three moments:
-1. **Review before you sign.** "Checked against the chain just now": the contract's own checks on the
-   user's numbers, then a now → after table, then "What you sign (1 transaction)": contract,
-   method, arguments, attached deposit, network fee. A failed check: "The contract would refuse
-   this, so there's nothing to sign yet. Fix the check marked above."
+Every wallet transaction goes through one dialog (`components/tx-dialog.tsx`), written for people who
+have never seen a contract call:
+1. **Review before you sign**, top to bottom:
+   - **You give → You get** in big numbers (e.g. "100.00 USDC → ≈102.40 shares").
+   - **Your balances**: now → after.
+   - One line: "Checked just now: the contract will accept this (5 of 5 checks pass)", opening to the
+     list. If a check fails, the failures show instead, under "The contract would refuse this", and
+     signing is off ("Nothing to sign yet. Fix what's listed above and review again.").
+   - **Network fee:** "less than 0.010 NEAR from your wallet. Most of it is usually refunded."
+   - **What happens next**: two or three plain sentences.
+   - **Technical details (what your wallet will show)**, folded: contract, method, arguments,
+     attached deposit, gas limit. This is where `ft_transfer_call` and yoctoNEAR live.
 2. **Waiting for your wallet.** The dialog can't be closed while the wallet is open.
 3. **Done**, with the result read back from the chain and the transaction link. Or **Not sent**, with
    the plain reason, then the raw one.
+
+Deposit next: Your shares arrive as soon as your wallet confirms. · Within a minute or so, the agent
+puts the USDC to work. You can watch it on the dashboard. · If the vault can't take the deposit for
+any reason, your USDC comes straight back.
+
+Withdraw next: Your shares leave your balance right away. The USDC usually lands in your wallet
+within 1-3 minutes. · The exact amount uses the share price at the moment the agent pays you, so it
+can differ by a few cents. · This is the only thing you sign. If the payout takes more than 10
+minutes, a button appears so you can finish it yourself.
 
 ### Left panel
 - Title: **Your vault**

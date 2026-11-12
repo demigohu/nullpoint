@@ -9,14 +9,23 @@ import { links } from "@/lib/config";
 
 export type Check = { label: string; ok: boolean; detail: string };
 export type Change = { label: string; before: string; after: string };
-export type Simulation = { checks: Check[]; changes: Change[] };
+export type Simulation = {
+  /** The one-line answer to "what do I give, what do I get". */
+  summary: { give: string; get: string };
+  checks: Check[];
+  changes: Change[];
+};
 export type TxSpec = {
   title: string;
   confirm: string;
   call: { contractId: string; method: string; args: Record<string, unknown>; gas: string; deposit?: string };
   /** One line per field of the transaction, in plain words. */
-  signs: [string, string][];
+  /** Network fee in plain words. */
+  fee: string;
+  /** What happens after signing, in plain words. */
   notes: string[];
+  /** Contract, method, arguments, deposit: folded under "Technical details". */
+  signs: [string, string][];
   simulate: () => Promise<Simulation>;
   /** Reads the chain after the transaction: what actually happened. */
   result: () => Promise<{ title: string; changes?: Change[]; next?: string }>;
@@ -101,28 +110,64 @@ export function TxDialog({ net, spec, onClose }: { net: NetConfig; spec: TxSpec 
 
           {sim && (
             <>
-              <section>
-                <h3 className="font-mono text-[11px] uppercase tracking-[0.2em]">Checked against the chain just now</h3>
-                <ul className="mt-2 grid gap-1.5">
-                  {sim.checks.map((c) => (
-                    <li key={c.label} className={`flex gap-2 text-[14px] leading-[1.4] ${c.ok ? "" : "text-alarm"}`}>
-                      <i aria-hidden className={`mt-[4px] block size-[10px] shrink-0 border ${c.ok ? "border-tc bg-tc" : "border-alarm"}`} />
-                      <span>
-                        <span className="sr-only">{c.ok ? "Passes: " : "Fails: "}</span>
-                        <b>{c.label}.</b> {c.detail}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
+              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-y border-tc py-4">
+                <div>
+                  <p className="font-mono text-[11px] uppercase tracking-[0.2em]">You give</p>
+                  <p className="num mt-1 text-[clamp(1.2rem,2.4vw,1.7rem)] font-bold leading-tight">{sim.summary.give}</p>
+                </div>
+                <span aria-hidden className="num text-[1.5rem]">→</span>
+                <div>
+                  <p className="font-mono text-[11px] uppercase tracking-[0.2em]">You get</p>
+                  <p className="num mt-1 text-[clamp(1.2rem,2.4vw,1.7rem)] font-bold leading-tight">{sim.summary.get}</p>
+                </div>
+              </div>
 
               <section>
-                <h3 className="font-mono text-[11px] uppercase tracking-[0.2em]">What changes</h3>
+                <h3 className="font-mono text-[11px] uppercase tracking-[0.2em]">Your balances</h3>
                 <Changes rows={sim.changes} />
               </section>
 
-              <section>
-                <h3 className="font-mono text-[11px] uppercase tracking-[0.2em]">What you sign (1 transaction)</h3>
+              {(() => {
+                const failed = sim.checks.filter((c) => !c.ok);
+                const list = (
+                  <ul className="mt-2 grid gap-1.5">
+                    {(failed.length ? failed : sim.checks).map((c) => (
+                      <li key={c.label} className={`flex gap-2 text-[14px] leading-[1.4] ${c.ok ? "" : "text-alarm"}`}>
+                        <i aria-hidden className={`mt-[4px] block size-[10px] shrink-0 border ${c.ok ? "border-tc bg-tc" : "border-alarm"}`} />
+                        <span>
+                          <span className="sr-only">{c.ok ? "Passes: " : "Fails: "}</span>
+                          <b>{c.label}.</b> {c.detail}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                );
+                return failed.length ? (
+                  <section>
+                    <h3 className="font-mono text-[11px] uppercase tracking-[0.2em] text-alarm">The contract would refuse this</h3>
+                    {list}
+                  </section>
+                ) : (
+                  <details>
+                    <summary className="cursor-pointer text-[14px]">
+                      <span className="mr-2 inline-block size-[10px] bg-tc align-middle" aria-hidden />
+                      Checked just now: the contract will accept this ({sim.checks.length} of {sim.checks.length} checks pass)
+                    </summary>
+                    {list}
+                  </details>
+                );
+              })()}
+
+              <section className="text-[14px] leading-[1.5]">
+                <p><b>Network fee:</b> {spec.fee}</p>
+                <h3 className="mt-3 font-mono text-[11px] uppercase tracking-[0.2em]">What happens next</h3>
+                <ul className="mt-1 grid gap-1">
+                  {spec.notes.map((n) => <li key={n}>{n}</li>)}
+                </ul>
+              </section>
+
+              <details className="border-t border-tc pt-3">
+                <summary className="cursor-pointer font-mono text-[11px] uppercase tracking-[0.2em]">Technical details (what your wallet will show)</summary>
                 <dl className="mt-2 grid gap-x-4 gap-y-1 text-[13px] sm:grid-cols-[auto_1fr]">
                   {spec.signs.map(([k, v]) => (
                     <div key={k} className="contents">
@@ -131,11 +176,7 @@ export function TxDialog({ net, spec, onClose }: { net: NetConfig; spec: TxSpec 
                     </div>
                   ))}
                 </dl>
-              </section>
-
-              <ul className="grid gap-1 border-t border-tc pt-4 text-[13px] leading-[1.45]">
-                {spec.notes.map((n) => <li key={n}>{n}</li>)}
-              </ul>
+              </details>
 
               <div className="flex flex-wrap gap-3">
                 <button onClick={sign} disabled={blocked || phase.k === "signing"} className="btn" data-label={spec.confirm}>
@@ -143,7 +184,7 @@ export function TxDialog({ net, spec, onClose }: { net: NetConfig; spec: TxSpec 
                 </button>
                 {phase.k === "review" && <button onClick={close} className="btn btn-ghost" data-label="Cancel">Cancel</button>}
               </div>
-              {blocked && <p className="text-[13px] text-alarm">The contract would refuse this, so there&apos;s nothing to sign yet. Fix the check marked above.</p>}
+              {blocked && <p className="text-[13px] text-alarm">Nothing to sign yet. Fix what&apos;s listed above and review again.</p>}
             </>
           )}
 
