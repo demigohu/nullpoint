@@ -19,7 +19,7 @@ export function Term({ k, children }: { k: keyof typeof GLOSSARY; children?: Rea
       <span
         id={`term-${k.replace(" ", "-")}`}
         role="tooltip"
-        className="panel pointer-events-none invisible absolute left-0 top-full z-20 mt-2 w-[280px] p-3 text-[13px] font-normal leading-[1.45] tracking-normal normal-case opacity-0 transition-opacity duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+        className="panel pointer-events-none absolute left-0 top-full z-20 mt-2 hidden w-[min(280px,calc(100vw-2*var(--pad)))] p-3 text-[13px] font-normal leading-[1.45] tracking-normal normal-case group-hover:block group-focus-within:block"
       >
         {GLOSSARY[k]}
       </span>

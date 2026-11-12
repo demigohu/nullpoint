@@ -388,14 +388,16 @@ All components are sharp-cornered (radius 0) and use only `--t`, `--f`, Dim (non
 - Deposit, withdraw and "finish it myself" each open the transaction dialog (§5 Explainer).
 
 ### `/dashboard`
-- A cockpit layout on a 12-column grid:
-  - **Top row:** 4 stat blocks (NAV/share, TVL, funding APR, Δ).
-  - **Middle:** the NAV chart (8 cols) and the funding radar (4 cols), which shows three
-    mini-monitors with their APRs, highlighting the active one.
-  - **Bottom:** the strategist decision log (Mono terminal list: time, action, payback, accepted
-    or rejected by the guardrail, TEE signature check) and the latest MPC signatures.
-- The page's mode follows the active asset, so the dashboard's color itself tells you what the
-  vault holds.
+- Title plus a row of status chips (network, running or paused, coin, last report, explorer links).
+- Four stat blocks with a one-line plain caption each.
+- **Share price chart** (8 cols): range tabs (24H / 7D / 30D / All), x ticks spaced by time so labels
+  never collide, a hover/tap readout panel (time, value, any AI decision near that moment), ◆
+  markers for accepted ROTATE / RESUME / PARK, and a table view.
+- Right column (4 cols): both sides of the hedge right now, then the funding monitors with payback.
+- **Activity feed** (full width): filter chips with counts, pages of 10, rows that open a detail
+  dialog (same `dialog.tx` surface) with the transaction hash looked up on NearBlocks
+  (`app/api/tx`, by block time and method), every parsed field and the raw payload.
+- The mode follows the vault, so the dashboard's color itself tells you what the vault holds.
 
 ### `/proof`
 - One column, like a document:

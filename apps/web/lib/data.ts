@@ -43,7 +43,7 @@ export const vaultOverview = cache(async (c: NetConfig) => {
   const state = await view<VaultState>(c.network, c.vault, "get_state");
   const [decisions, signed, nav, hl] = await Promise.all([
     view<[number, Decision][]>(c.network, c.vault, "get_decisions", { from: "0", limit: 500 }).then((d) => d.map(([id, x]) => ({ id, ...x }))),
-    last<Signed>(c, "get_signed", state.signed_count, 20),
+    last<Signed>(c, "get_signed", state.signed_count, 200),
     view<[number, NavPoint][]>(c.network, c.vault, "get_nav_history", { from: "0", limit: 500 }).then((d) => d.map(([, x]) => x)),
     hlInfo(c.hlChain, { type: "clearinghouseState", user: state.config.vault_address }).catch(() => null),
   ]);

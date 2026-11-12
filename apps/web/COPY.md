@@ -196,25 +196,31 @@ Every wallet transaction goes through one dialog (`components/tx-dialog.tsx`) in
 
 ## `/dashboard`
 
-- Title: **What the vault is doing right now**
-- Stats: Share price ("Recorded {ago}") · Vault size · Funding now ("a year on {coin}, averaged over 8
-  hours") · Hedge gap (Δ) ("Coin held minus the short. Close to zero means fully hedged.")
-- Chart: Share price over time. "The contract records the share price every 10 minutes."
-- Funding: **What each coin pays (funding)**. "Live from Hyperliquid mainnet, as a yearly rate.
-  Positive means the short gets paid." Footnote: Payback is how many hours of extra funding it takes
-  to earn back the 0.4% cost of switching. The agent may only switch when that is 168 hours (7 days)
-  or less.
-- Both sides right now: Coin held (NEAR Intents) · Short (Hyperliquid) · Collateral on Hyperliquid
-- Feed title: **Everything the vault did, newest first**. "Every MPC signature the contract asked for
-  and every decision the AI made, in plain words. The raw details sit under each line."
-- Feed lines (`lib/activity.ts`):
-  - Brought {x} USDC of collateral back from Hyperliquid. The contract signed it.
-  - Gave the agent its Hyperliquid key ({address}). It can trade with it, not withdraw.
-  - Paid out a withdrawal: {x} USDC to {account}.
-  - Sent {x} USDC through 1Click, either to buy the coin or as collateral on Hyperliquid. The
-    contract checked the quote first.
-  - Sold {qty} {coin} for USDC through 1Click. The contract checked the quote first.
-  - The AI / The backup rule said {ACTION coin}: {note}. The limits allowed it. / blocked it.
+- Title: **What the vault is doing right now**, then status chips: network · running/paused ·
+  hedging {coin} · last report {ago} · Hyperliquid account ↗ · Vault contract ↗
+- Stats: Share price ("Updated {ago}. {x}% since the first record.") · Vault size ("{n} shares
+  outstanding") · Funding now ("A year, on {coin}, averaged over the last 8 hours") · Hedge gap
+  ("{coin} held minus {coin} shorted. Close to zero means fully hedged.")
+- Chart: **Share price over time**. "Each switch between coins costs about 0.4% in swaps, which shows
+  up as a small step down at a ◆ marker. Funding earns it back over the following days." Range tabs
+  24H · 7D · 30D · All. Hint: "Hover or tap the chart for exact values." Markers: Switched to {coin} ·
+  Started hedging {coin} · Parked in USDC.
+- **Both sides right now:** Coin held (NEAR Intents) · Short {coin} (Hyperliquid) · Collateral on
+  Hyperliquid · Idle USDC in the vault
+- **What each coin pays (funding):** per coin "{x}% a year", "pays back in {h}h" or "not worth a
+  switch". Footnote: Payback is how many hours of extra funding it takes to earn back the 0.4% cost of
+  switching. The agent only switches when that is 168 hours (7 days) or less.
+- **Everything the vault did:** "Every MPC signature the contract asked for and every decision the AI
+  made, newest first. Filter by kind, and open any entry to see its transaction, every field and the
+  exact payload that was signed." Filters: All · Trades · Collateral · Withdrawals · AI decisions ·
+  Setup (with counts). Pages of 10: ← Newer · Page x of y · Older →. Empty: "Nothing of this kind yet."
+- Entry titles (`lib/activity.ts`): USDC sent through 1Click · {coin} sold for USDC · Collateral back
+  from Hyperliquid · Withdrawal paid out · Agent key approved on Hyperliquid · Decision: {stay put |
+  switch to X | start hedging X | wait in USDC} · Blocked: {…}
+- Decision lines: "The AI chose to {action}. {reasoning}" · "The AI wanted to {action}, and the limits
+  blocked it: {limit}." · "The AI's answer couldn't be read, so nothing changed."
+- Detail view: Transaction (looked up on NearBlocks by time; "Not on NearBlocks yet. The indexer can
+  lag a few minutes; try again shortly.") · every field · "Exact payload signed" / "Full note".
 
 ## `/proof`
 
