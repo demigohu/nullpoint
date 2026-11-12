@@ -45,7 +45,9 @@ export function signer(network: Network, accountId: string, privateKey: string):
       try {
         const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
         const body = await res.json().catch(() => null);
-        if (body && res.status !== 429 && res.status < 500 && body.error?.code !== -429) return body;
+        // RPCs send a rejected transaction (e.g. NotEnoughBalance) as HTTP 500 too; that answer is final.
+        const rejected = /INVALID_TRANSACTION/.test(JSON.stringify(body?.error ?? ""));
+        if (body && (rejected || (res.status !== 429 && res.status < 500 && body.error?.code !== -429))) return body;
       } catch {
         // next endpoint
       }
@@ -65,6 +67,9 @@ export function signer(network: Network, accountId: string, privateKey: string):
         // Re-broadcasting identical bytes is idempotent; it also covers a first send that was lost.
         const sent = await post("send_tx", { signed_tx_base64: signedTxBase64, wait_until: "INCLUDED" });
         if (sent?.error) broadcastError = JSON.stringify(sent.error).slice(0, 300);
+        // Rejected outright (no balance for the gas, missing key, ...): it can never land, so stop now.
+        // A nonce error is different: re-sending a transaction that already landed reports one.
+        if (/INVALID_TRANSACTION/.test(broadcastError) && !/Nonce/.test(broadcastError)) throw new Error(`${contract}.${method} rejected (tx ${tx}): ${broadcastError}`);
         const status = await post("tx", { tx_hash: tx, sender_account_id: accountId, wait_until: "FINAL" });
         const outcome = status?.result;
         if (outcome?.receipts_outcome && outcome.final_execution_status === "FINAL") {
