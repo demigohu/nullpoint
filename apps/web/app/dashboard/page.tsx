@@ -113,7 +113,7 @@ export default async function Dashboard() {
               yFormat="usd3"
               ranges
               markers={markers}
-              caption="The contract records the share price every 10 minutes."
+              caption={`The contract records the share price every ${net.navEveryMin} minutes.`}
             />
           </div>
         </div>

@@ -17,6 +17,11 @@ export default async function AppPage() {
               Deposit USDC and you get <Term k="share">shares</Term>. The vault earns <Term k="funding">funding</Term> and adds it to the{" "}
               <Term k="share price" />, so your shares grow slowly while coin prices swing.
             </p>
+            {ov && net.network === "mainnet" && (
+              <p className="mt-3 text-[14px] font-bold leading-[1.4]">
+                Mainnet: real USDC. The vault holds at most ${Number(ov.state.params.max_tvl) / 1e6} while the contract is unaudited.
+              </p>
+            )}
             {ov && (
               <p className="num mt-3 text-[12px]">
                 This grid is the vault right now: {(ov.hedge.longShare * 100).toFixed(1)}% long, {(100 - ov.hedge.longShare * 100).toFixed(1)}% short

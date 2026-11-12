@@ -6,7 +6,7 @@ const GLOSSARY = {
   "deposit fee": "0.5%, paid once when you deposit. It covers the swaps that put your money to work, so the people already in don't pay for you. It isn't counted against what you earn.",
   short: "A position that gains when the price falls.",
   hedge: "Holding a coin and an equal short, so price moves cancel.",
-  agent: "The bot that runs the vault every minute, with an AI model that picks the coin. It can place trades. It can't move money out.",
+  agent: "The bot that runs the vault on a schedule (every minute on testnet, every 10 on mainnet), with an AI model that picks the coin. It can place trades. It can't move money out.",
   "MPC signature": "A signature made by NEAR's network of signers on the contract's behalf. No single person ever holds the key.",
   enclave: "A sealed part of a chip. Nobody can see or change the code running inside, and it can prove what it ran.",
 } as const;

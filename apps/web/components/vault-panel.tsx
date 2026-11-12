@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNearWallet } from "near-connect-hooks";
 import type { NetConfig } from "@/lib/config";
-import { links } from "@/lib/config";
+import { links, pace } from "@/lib/config";
 import { ScrambleText } from "@/components/scramble-text";
 import { Term } from "@/components/term";
 import { TxDialog, type TxSpec } from "@/components/tx-dialog";
@@ -13,7 +13,6 @@ import { TxDialog, type TxSpec } from "@/components/tx-dialog";
 type Withdrawal = { id: number; account: string; shares: string; usdc: string; status: string; signed_id: number | null; signedMs?: number };
 type ChainState = { paused: boolean; total_shares: string; snapshot: { nav: string; ms: number } | null; params: { max_tvl: string; max_nav_age_s: number; entry_fee_bps: number; exit_fee_bps: number }; withdrawal_count: number };
 
-const STUCK_MS = 10 * 60_000; // only then offer the self-serve fallback
 const RECENT = 3; // withdrawals listed before "show older"
 const TGAS = (n: number) => String(n * 1e12);
 const fmt = (raw: bigint | string | number, d = 6) => (Number(raw) / 10 ** d).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -112,7 +111,7 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
     fee: fee(100),
     notes: [
       "Your shares arrive as soon as your wallet confirms. If the vault can't take the deposit, your USDC comes straight back.",
-      "Within a minute, the agent puts the USDC to work. You can watch it on the dashboard.",
+      `The agent puts the USDC to work ${pace(net).hedge}. You can watch it on the dashboard.`,
     ],
     simulate: async () => {
       // Same math and limits as the vault's ft_on_transfer.
@@ -149,7 +148,7 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
           { label: "Wallet USDC", before: fmt(usdc ?? 0n), after: fmt(r.usdc) },
           { label: "Your shares", before: fmt(before), after: fmt(r.shares) },
         ],
-        next: "The agent hedges it within a minute or so. You can watch that happen on the dashboard.",
+        next: `The agent hedges it ${pace(net).hedge}. You can watch that happen on the dashboard.`,
       };
     },
   });
@@ -167,7 +166,7 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
     ],
     fee: fee(30),
     notes: [
-      "Your shares leave your balance now. The USDC usually lands in your wallet within 1-3 minutes, priced when the agent pays you, so it can differ by a few cents.",
+      `Your shares leave your balance now. The USDC usually lands in your wallet ${pace(net).payout}, priced when the agent pays you, so it can differ by a few cents.`,
       "This is the only thing you sign. If the payout takes more than 10 minutes, a button appears so you can finish it yourself.",
     ],
     simulate: async () => {
@@ -281,7 +280,7 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
               </div>
               <input id="wd" inputMode="decimal" autoComplete="off" value={withdrawShares} onChange={(e) => setWithdrawShares(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" className={fieldClass} aria-describedby="wd-help" />
               <p id="wd-help" className="text-[14px] leading-[1.5]">
-                {outUnits > 0n ? `Worth about $${fmt(Number(outUnits) * sharePrice * (1 - (chain?.params.exit_fee_bps ?? 0) / 10_000), 6)} at today's price, after the withdrawal fee. ` : "How many shares to cash out. "}The USDC lands in your wallet on its own, usually within 1-3 minutes.
+                {outUnits > 0n ? `Worth about $${fmt(Number(outUnits) * sharePrice * (1 - (chain?.params.exit_fee_bps ?? 0) / 10_000), 6)} at today's price, after the withdrawal fee. ` : "How many shares to cash out. "}The USDC lands in your wallet on its own, usually {pace(net).payout}.
               </p>
               <button disabled={!outUnits} className="btn mt-3 w-full" data-label="Review withdrawal">Review withdrawal</button>
             </form>
@@ -295,7 +294,7 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
           <p className="mt-4 text-[14px]">No withdrawals yet. When you make one, you can follow each step here.</p>
         ) : (
           <ul className="mt-4">
-            {(allShown ? mine : mine.slice(0, RECENT)).map((w) => <WithdrawalRow key={w.id} w={w} txUrl={L.tx} onFinish={() => setTx(finishSpec(w))} />)}
+            {(allShown ? mine : mine.slice(0, RECENT)).map((w) => <WithdrawalRow key={w.id} w={w} txUrl={L.tx} stuckMs={pace(net).stuckMin * 60_000} onFinish={() => setTx(finishSpec(w))} />)}
           </ul>
         )}
         {mine.length > RECENT && (
@@ -320,9 +319,10 @@ const STEPS = [
 ] as const;
 
 /** Status track: one square bit per step (DESIGN.md §5). */
-function WithdrawalRow({ w, txUrl, onFinish }: { w: Withdrawal; txUrl: (h: string) => string; onFinish: () => void }) {
+/** `stuckMs`: a signed payout older than this offers the self-serve fallback (a few agent runs). */
+function WithdrawalRow({ w, txUrl, stuckMs, onFinish }: { w: Withdrawal; txUrl: (h: string) => string; stuckMs: number; onFinish: () => void }) {
   const done = w.status === "done" ? 3 : w.status === "signed" ? 2 : 1;
-  const stuck = w.status === "signed" && w.signedMs !== undefined && Date.now() - w.signedMs > STUCK_MS;
+  const stuck = w.status === "signed" && w.signedMs !== undefined && Date.now() - w.signedMs > stuckMs;
   // The vault keeps when it signed, not the hashes: look up the signing and payout transactions.
   const [hashes, setHashes] = useState<(string | null)[]>([]);
   useEffect(() => {

@@ -7,6 +7,7 @@ import { Manifesto } from "@/components/landing/manifesto";
 import { Smooth } from "@/components/landing/smooth";
 import { TwoLegs } from "@/components/landing/two-legs";
 import { Wordmark } from "@/components/hud";
+import { pace } from "@/lib/config";
 import { currentNet, fundingRadar, hedgeBacktest, vaultOverview } from "@/lib/data";
 import { MODES } from "@/lib/modes";
 import { DOCS_URL } from "@/lib/config";
@@ -26,10 +27,12 @@ const ATTACKS = [
   ["Get the contract to sign a swap that pays the attacker", "The vault refused: the quote wasn't signed by 1Click."],
 ] as const;
 
-const GUARDS = [
+type Pace = ReturnType<typeof pace>;
+
+const guards = (p: Pace) => [
   ["Every swap is checked on-chain", "Before NEAR's signers sign anything, the contract checks 1Click's signature, who gets paid, and the price."],
   ["Every AI decision is on the record", "Each call the model makes is stored on-chain with its enclave signature, including the ones the limits threw out."],
-  ["Withdrawals pay out on their own", "The agent pays queued withdrawals in order. If one waits more than 10 minutes, you can finish it from your wallet."],
+  ["Withdrawals pay out on their own", `The agent pays queued withdrawals in order. If one waits more than ${p.stuckMin} minutes, you can finish it from your wallet.`],
 ] as const;
 
 const RISKS = [
@@ -39,17 +42,17 @@ const RISKS = [
   ["A sharp rally", "A fast jump in price squeezes the short. The agent adds collateral early, but a big enough gap can still liquidate it."],
 ] as const;
 
-const STEPS = [
+const steps = (p: Pace) => [
   ["Connect a NEAR wallet", "Any NEAR wallet works. Connecting only shares your account name; nothing is signed or sent."],
-  ["Deposit USDC", "You get shares at the vault's current share price, less a 0.5% deposit fee that pays for the swaps, and the agent hedges your money within a minute or so. On testnet, get free test USDC from the account menu."],
-  ["Withdraw whenever you want", "Ask for your USDC back and it lands in your wallet, usually within 1-3 minutes. There's no lockup, and a 0.5% fee pays for selling your part of the coin."],
+  ["Deposit USDC", `You get shares at the vault's current share price, less a 0.5% deposit fee that pays for the swaps, and the agent hedges your money ${p.hedge}. On testnet, get free test USDC from the account menu.`],
+  ["Withdraw whenever you want", `Ask for your USDC back and it lands in your wallet, usually ${p.payout}. There's no lockup, and a 0.5% fee pays for selling your part of the coin.`],
 ] as const;
 
-const faq = (yearly: number): [string, string][] => [
+const faq = (yearly: number, p: Pace): [string, string][] => [
   ["Is my money safe?", "Your USDC sits in a smart contract on NEAR, and only that contract can sign money out of the vault's accounts. The agent that runs it can trade but can't withdraw. It is still new code that hasn't been audited, so only put in what you're fine testing with."],
   ["Where does the yield come from?", "From funding: the hourly fee that traders betting on prices going up pay to the traders betting against them. The vault is always on the side that gets paid, with an equal amount of the coin held so price swings cancel."],
   ["How much can I earn?", `It moves with funding. Over the last 30 days the hedged strategy made about ${yearly.toFixed(1)}% a year in a simulation on real Hyperliquid data. Some weeks it earns nothing, and the dashboard shows the live rate.`],
-  ["When can I get my money back?", "Any time. Your USDC usually arrives within 1-3 minutes. If the agent is ever down for more than 10 minutes, the app lets you finish the withdrawal yourself."],
+  ["When can I get my money back?", `Any time. Your USDC usually arrives ${p.payout}. If the agent is ever down for more than ${p.stuckMin} minutes, the app lets you finish the withdrawal yourself.`],
   ["What does it cost?", "0.5% when you deposit and 0.5% when you withdraw. Both go to the swaps that move your money in and out, so the people already in never pay for you. NullPoint keeps 5% of what the vault earns, and only above its previous high: if the share price dips, there's no fee until it has climbed back. Switching coins costs the vault about 0.4%, which is why the agent only switches when the extra yield pays that back within a week."],
   ["Can I lose money?", "Yes. Funding can turn negative, Hyperliquid or a bridge can fail, and a very sharp rally can hurt the short. The risks section above explains each one."],
   ["Who holds the keys?", "The contract does, through NEAR Chain Signatures. The agent only has a trading key. The owner can pause the vault, change its limits and, in this hackathon build, upgrade the contract. No method sends the vault's funds to the owner; the only thing NullPoint receives is its 5% performance fee, as shares."],
@@ -59,6 +62,7 @@ const title = "wdth-118 text-[clamp(2.2rem,4.6vw,5.4rem)] font-extrabold leading
 
 export default async function Landing() {
   const net = await currentNet();
+  const p = pace(net);
   const [bt, ov, radar] = await Promise.all([hedgeBacktest(30), vaultOverview(net).catch(() => null), fundingRadar(net.hlChain).catch(() => [])]);
   const longShare = ov?.hedge.longShare ?? 0.5;
   const hedgedYear = ((bt.at(-1)!.hedged - bt[0]!.hedged) / bt[0]!.hedged) * 100 * (365 / 30);
@@ -76,7 +80,7 @@ export default async function Landing() {
           <Link href="/app" className="btn mt-8" data-label="Deposit USDC">Deposit USDC</Link>
         </div>
         <ol className="lg:col-span-8">
-          {STEPS.map(([h, b], i) => (
+          {steps(p).map(([h, b], i) => (
             <li key={h} className="grid gap-2 border-t border-tc py-6 sm:grid-cols-[5rem_1fr] sm:gap-6">
               <span aria-hidden className="wdth-125 text-[clamp(3rem,5vw,4.5rem)] font-extrabold leading-[0.8] tracking-[-0.05em]">{i + 1}</span>
               <div>
@@ -122,7 +126,7 @@ export default async function Landing() {
               <a href={`${DOCS_URL}/verify`} className="underline underline-offset-2">check it live ↗</a>
             </p>
           </div>
-          {GUARDS.map(([h, b]) => (
+          {guards(p).map(([h, b]) => (
             <div key={h} className="panel p-[var(--pad)] md:col-span-5">
               <h3 className="wdth-110 text-[clamp(1.2rem,1.6vw,1.6rem)] font-bold tracking-[-0.03em]">{h}</h3>
               <p className="mt-2 text-[15px] leading-[1.5]">{b}</p>
@@ -146,7 +150,7 @@ export default async function Landing() {
       <section className="grid gap-[var(--pad)] p-[var(--pad)] pb-[clamp(4rem,10vw,9rem)] lg:grid-cols-12">
         <h2 className={`${title} lg:col-span-4`}>Questions people ask</h2>
         <div className="lg:col-span-8">
-          {faq(hedgedYear).map(([q, a]) => (
+          {faq(hedgedYear, p).map(([q, a]) => (
             <details key={q} className="faq group border-t border-tc">
               <summary className="flex cursor-pointer list-none items-baseline justify-between gap-6 py-5">
                 <span className="wdth-110 text-[clamp(1.15rem,1.5vw,1.5rem)] font-bold tracking-[-0.03em]">{q}</span>
@@ -175,7 +179,9 @@ export default async function Landing() {
           </div>
           <p className="font-mono text-[12px] md:col-span-12">
             <Wordmark /> ·{" "}
-            {net.network === "testnet" ? "Running on NEAR testnet with test USDC. Nothing here is real money yet." : "Running on NEAR mainnet."}
+            {net.network === "testnet"
+              ? "Running on NEAR testnet with test USDC. Nothing here is real money yet."
+              : `Running on NEAR mainnet with real USDC, capped at $${ov ? Number(ov.state.params.max_tvl) / 1e6 : 100} while the contract is unaudited.`}
           </p>
         </div>
       </section>
