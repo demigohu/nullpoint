@@ -4,7 +4,9 @@
   "type": "module",
   "scripts": {
     "start": "node --env-file-if-exists=../../.env src/index.ts",
-    "once": "node --env-file-if-exists=../../.env src/index.ts --once"
+    "once": "node --env-file-if-exists=../../.env src/index.ts --once",
+    "start:mainnet": "node --env-file=../../.env.mainnet src/index.ts",
+    "once:mainnet": "node --env-file=../../.env.mainnet src/index.ts --once"
   },
   "dependencies": {
     "@nktkas/hyperliquid": "^0.33.3",

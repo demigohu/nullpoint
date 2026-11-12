@@ -353,3 +353,16 @@ fn margin_arriving_above_the_quote_minimum_is_not_a_violation() {
     // A report far outside what the transfer explains still pauses.
     assert!(v.check_and_value(&[], 75_000_000, &[U128(0), U128(0), U128(0)]).is_err());
 }
+
+#[test]
+fn a_late_report_is_dropped_without_pausing() {
+    // Testnet regression: the agent reported its position 3 minutes after its prices and the vault
+    // paused itself over a stale BTC price.
+    let mut v = priced_vault();
+    let held = vec![U128(0), U128(27_000), U128(0)];
+    let short = vec![Position { symbol: "BTC".into(), size: U128(27_000), entry_notional: U128(20_000_000) }];
+    ctx("vault.testnet".parse().unwrap(), quote_ms(PRICE) + 121_000);
+    v.on_balances(short, U128(10_000_000), Ok(held));
+    assert!(!v.paused);
+    assert!(v.snapshot.is_none());
+}

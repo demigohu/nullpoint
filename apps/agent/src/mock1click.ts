@@ -8,7 +8,7 @@ import { base58 } from "@scure/base";
 import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
 import { privateKeyToAccount } from "viem/accounts";
 import { assetByToken, fromUsdc, hlInfo, signedMessage, toUsdc, type QuoteResponse } from "@nullpoint/core";
-import type { Signer } from "./chain.ts";
+import { signerFromEnv } from "./chain.ts";
 
 const FEE_BPS = 30n;
 const keyFile = (f: string) => JSON.parse(readFileSync(new URL(`../../../.keys/${f}`, import.meta.url), "utf8"));
@@ -21,6 +21,8 @@ const privateKey = createPrivateKey({
 // The solver's Hyperliquid testnet wallet: receives margin pulled from the vault, sends margin to it.
 const solver = privateKeyToAccount((process.env.SOLVER_HL_PRIVATE_KEY || keyFile("mock-solver-hl.json").privateKey) as `0x${string}`);
 const solverExchange = new ExchangeClient({ transport: new HttpTransport({ isTestnet: true }), wallet: solver });
+// The solver's NEAR account: executes the vault's signed intents on the mock verifier and credits outputs.
+const solverNear = signerFromEnv("testnet", "SOLVER");
 
 const isHl = (asset: string) => asset.startsWith("1cs_v1:hypercore:");
 const usdcDecimals = (asset: string) => (isHl(asset) ? 8 : 6);
@@ -63,16 +65,22 @@ export async function quote(req: Record<string, any>): Promise<QuoteResponse> {
   return r;
 }
 
+/** Deposits into a quote: the solver submits the vault's signed transfer to the mock verifier. */
+export async function execute(verifier: string, intent: { standard: string; payload: string; signature: string }) {
+  await solverNear.call(verifier, "execute_intents", { signed: [intent] }, { gas: 100 });
+}
+
 /** Solver side of a quote whose deposit already happened (intent executed, or sendAsset posted). */
-export async function fill(solverNear: Signer, verifier: string, r: QuoteResponse) {
+export async function complete(verifier: string, r: QuoteResponse): Promise<string> {
   const q = r.quoteRequest;
   if (isHl(q.destinationAsset)) {
     // Margin out: deliver USDC to the vault's Hyperliquid perp balance, as 1Click does
     // (perp -> perp usdSend; Hyperliquid rejects a cross-dex sendAsset to another user).
     await deliverMargin(q.recipient, Number(r.quote.amountOut) / 1e8);
-    return;
+  } else {
+    await solverNear.call(verifier, "solver_credit", { account_id: q.recipient, token_id: q.destinationAsset, amount: r.quote.amountOut }, { gas: 30 });
   }
-  await solverNear.call(verifier, "solver_credit", { account_id: q.recipient, token_id: q.destinationAsset, amount: r.quote.amountOut }, { gas: 30 });
+  return "SUCCESS";
 }
 
 /** Solver pays `usd` of perp USDC to `destination`, topping its own perp balance up from spot first. */

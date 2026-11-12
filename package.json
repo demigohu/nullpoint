@@ -16,7 +16,8 @@
     "e2e:testnet": "npm run e2e:testnet -w @nullpoint/scripts --silent",
     "deploy:testnet": "npm run deploy:testnet -w @nullpoint/scripts --silent",
     "reset:testnet": "npm run reset:testnet -w @nullpoint/scripts --silent",
-    "agent": "npm start -w agent"
+    "agent": "npm start -w agent",
+    "agent:mainnet": "npm run start:mainnet -w agent"
   },
   "devDependencies": {
     "prettier": "3.9.6",

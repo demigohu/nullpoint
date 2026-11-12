@@ -1,12 +1,13 @@
-// NullPoint agent (testnet). Stateless: each cycle reads the vault and Hyperliquid, then converges.
-//   1. report verified prices (1Click quotes; mock on testnet)
+// NullPoint agent. Stateless: each cycle reads the vault and Hyperliquid, then converges.
+//   1. report verified prices (1Click quotes; a mock on testnet, where NEAR Intents has no deployment)
 //   2. strategist (LLM on NEAR AI Cloud, rule fallback) -> guardrail -> decision recorded on-chain
 //   3. desired spot = all in the target asset (or USDC when parked); swap one capped step toward it
 //   4. size each Hyperliquid short to its spot (agent wallet)
 //   5. report the Hyperliquid side; the contract checks it and recomputes NAV
 //   node src/index.ts [--once]
-//   env: AGENT_ACCOUNT/AGENT_PRIVATE_KEY (function-call key on the vault), HL_AGENT_PRIVATE_KEY,
-//        SOLVER_ACCOUNT/SOLVER_PRIVATE_KEY (testnet mock 1Click), OWNER, INTERVAL_S (60),
+//   env: NETWORK (testnet | mainnet), AGENT_ACCOUNT/AGENT_PRIVATE_KEY (function-call key on the vault),
+//        HL_AGENT_PRIVATE_KEY, NEAR_INTENTS_API_KEY (mainnet), SOLVER_ACCOUNT/SOLVER_PRIVATE_KEY (testnet
+//        mock 1Click), OWNER, INTERVAL_S (60),
 //        STRATEGIST_INTERVAL_MIN (30), NEARAI_API_KEY,
 //        STRATEGIST=rule to skip the LLM; DEMO_FUNDING='{"NEAR":60}' and DEMO_MIN_HOLD_HOURS=0 to stage a rotation on testnet
 import { readFileSync } from "node:fs";
@@ -18,14 +19,14 @@ import {
 } from "@nullpoint/core";
 import { askStrategist } from "@nullpoint/core/strategist";
 import { signerFromEnv } from "./chain.ts";
-import { acquireLock, journal } from "./journal.ts";
-import * as oneclick from "./mock1click.ts";
+import { NET, acquireLock, journal } from "./journal.ts";
 
-const NET = "testnet";
-const OWNER = process.env.OWNER ?? "nullpoint.testnet";
-const [VAULT, VERIFIER] = ["vault", "verifier"].map((p) => `${p}.${OWNER}`);
+const MAINNET = NET === "mainnet";
+const OWNER = process.env.OWNER ?? (MAINNET ? "nullpoint.near" : "nullpoint.testnet");
+const VAULT = `vault.${OWNER}`;
+const VERIFIER = MAINNET ? "intents.near" : `verifier.${OWNER}`;
+const oneclick = MAINNET ? await import("./oneclick.ts") : await import("./mock1click.ts");
 const agent = signerFromEnv(NET, "AGENT");
-const solver = signerFromEnv(NET, "SOLVER"); // testnet: plays 1Click on the mock verifier
 const DEFAULT_TARGET = "BTC";
 // The vault's leverage is set by the split (margin = equity / (L + 1)). The venue setting only sets the
 // initial margin per order; at L itself every dollar of margin is already used and no order fits.
@@ -45,9 +46,9 @@ const DEMO_FUNDING: Record<string, number> = JSON.parse(process.env.DEMO_FUNDING
 const LIMITS_USED = { ...LIMITS, ...(process.env.DEMO_MIN_HOLD_HOURS ? { minHoldHours: Number(process.env.DEMO_MIN_HOLD_HOURS) } : {}) };
 
 const hlAgent = privateKeyToAccount(
-  (process.env.HL_AGENT_PRIVATE_KEY || JSON.parse(readFileSync(new URL("../../../.keys/hl-agent.json", import.meta.url), "utf8")).privateKey) as `0x${string}`,
+  (process.env.HL_AGENT_PRIVATE_KEY || JSON.parse(readFileSync(new URL(`../../../.keys/${MAINNET ? "mainnet/" : ""}hl-agent.json`, import.meta.url), "utf8")).privateKey) as `0x${string}`,
 );
-const transport = new HttpTransport({ isTestnet: true });
+const transport = new HttpTransport({ isTestnet: !MAINNET });
 const info = new InfoClient({ transport });
 const exchange = new ExchangeClient({ transport, wallet: hlAgent });
 
@@ -181,7 +182,7 @@ async function decide(ctx: Context, mkts: Market[], p: ReturnType<typeof plan>) 
 }
 
 /**
- * Moves funds through the vault: verified 1Click quote -> MPC signature -> deposit -> (mock) solver fill.
+ * Moves funds through the vault: verified 1Click quote -> MPC signature -> deposit -> solver delivers.
  * Spot swaps and margin-out sign an Intents transfer (executed by the verifier); margin-in signs a
  * Hyperliquid sendAsset from the vault's master (posted to Hyperliquid).
  */
@@ -210,7 +211,7 @@ type SignedItem = { kind: string; payload: string; signature: string | null; ms:
 /**
  * Takes a journaled move from wherever it stopped to filled. Safe to repeat: an intent whose nonce
  * the verifier already used isn't resubmitted, Hyperliquid rejects a reused sendAsset nonce, and the
- * journal stops the mock solver from filling twice.
+ * journal stops the (mock) solver from filling twice.
  */
 async function settle(dep: string) {
   const m = journal.all()[dep];
@@ -220,20 +221,21 @@ async function settle(dep: string) {
   if (!s.signature || s.signature === "error") throw new Error(`MPC did not sign move ${dep.slice(0, 10)}`);
   if (!m.executed) {
     if (s.kind === "hl_send_asset") {
-      const res = await postSignedAction("testnet", s.payload, s.signature);
+      const res = await postSignedAction(NET, s.payload, s.signature);
       if (res?.status !== "ok" && !/nonce/i.test(JSON.stringify(res))) throw new Error(`Hyperliquid rejected the vault's sendAsset: ${JSON.stringify(res)}`);
     } else {
       const { signer_id, nonce, deadline } = JSON.parse(s.payload);
       const used = await view<boolean>(NET, VERIFIER, "is_nonce_used", { account_id: signer_id, nonce });
       if (!used) {
         if (Date.parse(deadline) < Date.now()) throw new Error(`signed intent for ${dep.slice(0, 10)} expired unexecuted; check margin records`);
-        // Testnet: the vault-signed intent goes to the mock verifier (mainnet: 1Click /v0/submit-intent).
-        await solver.call(VERIFIER, "execute_intents", { signed: [{ standard: "erc191", payload: s.payload, signature: mpcToIntentsSignature(s.signature) }] }, { gas: 100 });
+        await oneclick.execute(VERIFIER, { standard: "erc191", payload: s.payload, signature: mpcToIntentsSignature(s.signature) });
       }
     }
     journal.update(dep, { executed: true });
   }
-  await oneclick.fill(solver, VERIFIER, m.q);
+  const status = await oneclick.complete(VERIFIER, m.q);
+  // A refund leaves the margin records off; the next report shows it, and the contract pauses if it's large.
+  if (status !== "SUCCESS") log(`1Click move to ${dep.slice(0, 10)}… ended ${status}`);
   journal.update(dep, { filled: true });
 }
 
@@ -275,13 +277,17 @@ async function cycle() {
   // 1. prices: sell ~1 USDC worth of each asset for USDC
   const [meta, ctxs] = await retry(() => info.metaAndAssetCtxs());
   const mark = (coin: string) => Number(ctxs[meta.universe.findIndex((u) => u.name === coin)]!.markPx);
-  const priceQuotes = await Promise.all(
-    ASSETS.map((a) => {
-      const amount = (PRICE_SAMPLE_USDC * 10n ** BigInt(a.decimals)) / BigInt(Math.round(mark(a.hlCoin) * 1e6));
-      return oneclick.quote({ dry: true, swapType: "EXACT_INPUT", slippageTolerance: 100, originAsset: a.tokenId, destinationAsset: usdcToken, amount: amount.toString(), deadline: new Date(nowMs + 10 * 60_000).toISOString(), ...side });
-    }),
-  );
-  await agentCall("report_prices", { quotes: priceQuotes.map((r) => ({ message: msg(r), signature: r.signature })) });
+  const reportPrices = async () => {
+    const quotes = await Promise.all(
+      ASSETS.map((a) => {
+        const amount = (PRICE_SAMPLE_USDC * 10n ** BigInt(a.decimals)) / BigInt(Math.round(mark(a.hlCoin) * 1e6));
+        return oneclick.quote({ dry: true, swapType: "EXACT_INPUT", slippageTolerance: 100, originAsset: a.tokenId, destinationAsset: usdcToken, amount: amount.toString(), deadline: new Date(Date.now() + 10 * 60_000).toISOString(), ...side });
+      }),
+    );
+    await agentCall("report_prices", { quotes: quotes.map((r) => ({ message: msg(r), signature: r.signature })) });
+    return Date.now();
+  };
+  let pricedMs = await reportPrices();
 
   // 2. strategist
   let p = plan(await view<[number, OnChainDecision][]>(NET, VAULT, "get_decisions", { from: "0", limit: 500 }).then((d) => d.map(([, x]) => x)), nowMs);
@@ -445,6 +451,9 @@ async function cycle() {
   // deposits until the next cycle fixes the hedge (e.g. Hyperliquid refusing orders under congestion).
   const offHedge = ASSETS.filter((a, i) => outOfBand(i, a));
   if (offHedge.length) return log(`hedge off for ${offHedge.map((a) => a.symbol).join(", ")}; not reporting until it's fixed`);
+  // The contract rejects (and pauses on) a report priced older than max_price_age_s; a slow 1Click
+  // settlement can eat most of that window, so reprice first.
+  if (Date.now() - pricedMs > (Number(state.params.max_price_age_s) * 1000) / 2) pricedMs = await reportPrices();
   await agentCall("report_position", { positions, account_value: accountValue });
   const after = await view(NET, VAULT, "get_state");
   log(`NAV ${Number(after.snapshot?.nav ?? 0) / 1e6} USDC | target ${p.target ?? "PARKED"} | HL ${Number(accountValue) / 1e6} | ${JSON.stringify(positions)} | paused ${after.paused}`);

@@ -1,9 +1,12 @@
 // Crash safety for the agent host: a process lock, and a journal of fund moves so a restart can
 // finish what a previous run started (a signed intent that never executed, an unfilled mock quote).
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import type { QuoteResponse } from "@nullpoint/core";
+import type { Network, QuoteResponse } from "@nullpoint/core";
 
-const DIR = new URL("../.state/", import.meta.url);
+export const NET = (process.env.NETWORK ?? "testnet") as Network;
+if (NET !== "testnet" && NET !== "mainnet") throw new Error(`NETWORK must be testnet or mainnet, got ${NET}`);
+// One state dir per network, so a testnet and a mainnet agent can share a host.
+const DIR = new URL(`../.state/${NET === "testnet" ? "" : "mainnet/"}`, import.meta.url);
 const LOCK = new URL("agent.lock", DIR);
 const FILE = new URL("journal.json", DIR);
 mkdirSync(DIR, { recursive: true });

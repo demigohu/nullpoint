@@ -469,6 +469,14 @@ impl Contract {
         #[callback_result] balances: Result<Vec<U128>, PromiseError>,
     ) {
         let Ok(balances) = balances else { return env::log_str("balance read failed") };
+        // A stale price means the agent reported late, not that anything is wrong: drop the report
+        // (the NAV just ages) instead of pausing.
+        if let Some(a) = self.assets.iter().enumerate().find_map(|(i, a)| {
+            let held = balances.get(i + 1).is_some_and(|b| b.0 > 0) || positions.iter().any(|x| x.symbol == a.symbol && x.size.0 > 0);
+            (held && now_ms() - a.price_ms > self.params.max_price_age_s * 1000).then_some(a)
+        }) {
+            return env::log_str(&format!("REJECTED: {} price stale, report prices first", a.symbol));
+        }
         match self.check_and_value(&positions, account_value.0, &balances) {
             Ok(nav) => {
                 self.charge_performance_fee(nav);
@@ -812,9 +820,6 @@ impl Contract {
             let short = pos.map_or(0, |x| x.size.0);
             if spot == 0 && short == 0 {
                 continue;
-            }
-            if now_ms() - a.price_ms > p.max_price_age_s * 1000 {
-                return Err(format!("{} price stale", a.symbol));
             }
             let px = |q: u128| q * a.price_out.0 / a.price_in.0;
             let (sv, shv) = (px(spot), px(short));
