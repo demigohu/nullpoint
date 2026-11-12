@@ -52,7 +52,12 @@ export const pace = (c: NetConfig) =>
     : { hedge: `within about ${c.agentMin} minutes`, payout: `within ${c.agentMin}-${2 * c.agentMin} minutes`, stuckMin: 3 * c.agentMin };
 
 export const NET_COOKIE = "np_net";
-export const DOCS_URL = process.env.NEXT_PUBLIC_DOCS_URL ?? "http://localhost:3001";
+// Production builds (Vercel) link the live sites; `npm run dev` links the local ones. Env vars override.
+const prod = process.env.NODE_ENV === "production";
+export const SITE_URL = process.env.SITE_URL ?? (prod ? "https://nullpoint.fun" : "http://localhost:3000");
+export const DOCS_URL = process.env.NEXT_PUBLIC_DOCS_URL ?? (prod ? "https://docs.nullpoint.fun" : "http://localhost:3001");
+export const STATUS_URL = process.env.NEXT_PUBLIC_STATUS_URL ?? "https://status.nullpoint.fun";
+export const REPO_URL = process.env.NEXT_PUBLIC_REPO_URL ?? "https://github.com/demigohu/nullpoint";
 export const DEFAULT_NET: Network = (process.env.NEXT_PUBLIC_DEFAULT_NET as Network) ?? "testnet";
 
 export const links = (c: NetConfig) => ({

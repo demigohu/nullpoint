@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Archivo, JetBrains_Mono } from "next/font/google";
 import { Hud } from "@/components/hud";
+import { DOCS_URL, REPO_URL, SITE_URL, STATUS_URL } from "@/lib/config";
 import { Providers } from "@/components/providers";
 import { currentNet, vaultOverview } from "@/lib/data";
 import { MODES } from "@/lib/modes";
@@ -10,7 +11,7 @@ const archivo = Archivo({ subsets: ["latin"], axes: ["wdth"], variable: "--font-
 const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jb" });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.SITE_URL ?? "http://localhost:3000"),
+  metadataBase: new URL(SITE_URL),
   title: "NullPoint: earn from crypto without betting on it",
   description:
     "Deposit USDC on NEAR. The vault holds a coin and an equal short on Hyperliquid, so price swings cancel and the hourly funding goes to your shares. An AI agent runs it and can't withdraw.",
@@ -35,6 +36,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <Hud network={net.network} liveMode={liveMode} live={ov ? { symbol: ov.hedge.symbol, delta: ov.hedge.delta, paused: ov.state.paused } : null} />
           <div id="main">{children}</div>
           <footer className="border-t border-tc px-[var(--pad)] py-6 font-mono text-[12px] leading-relaxed">
+            <nav aria-label="More" className="mb-3 flex flex-wrap gap-x-5 gap-y-1">
+              {[["Docs", DOCS_URL], ["Status", STATUS_URL], ["GitHub", REPO_URL]].map(([label, href]) => (
+                <a key={label} href={href} target="_blank" rel="noreferrer" className="underline underline-offset-2">{label} ↗</a>
+              ))}
+            </nav>
             NullPoint is an experiment built at NEAR HACKATHON. Testnet uses test USDC and a stand-in for the Intents contract. Mainnet is capped. Not
             investment advice.
           </footer>

@@ -3,14 +3,14 @@ import { Archivo, JetBrains_Mono } from "next/font/google";
 import { DocsLayout } from "fumadocs-ui/layouts/docs";
 import { RootProvider } from "fumadocs-ui/provider/next";
 import { source } from "@/lib/source";
-import { APP_URL, REPO_URL, STATUS_URL } from "@/lib/vault";
+import { APP_URL, DOCS_URL, REPO_URL, STATUS_URL } from "@/lib/vault";
 import "./globals.css";
 
 const archivo = Archivo({ subsets: ["latin"], axes: ["wdth"], variable: "--font-archivo" });
 const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jb" });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_DOCS_URL ?? "http://localhost:3001"),
+  metadataBase: new URL(DOCS_URL),
   title: { default: "NullPoint docs", template: "%s · NullPoint docs" },
   description: "What NullPoint is, how it earns, how it's built, what it trusts, and how to check every claim yourself.",
 };

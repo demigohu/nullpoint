@@ -28,6 +28,9 @@ export async function readVault(n: Net) {
   return { state, decisions, signed, agents };
 }
 
-export const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+// Production builds (Vercel) link the live sites; `npm run dev` links the local ones. Env vars override.
+const prod = process.env.NODE_ENV === "production";
+export const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? (prod ? "https://nullpoint.fun" : "http://localhost:3000");
+export const DOCS_URL = process.env.NEXT_PUBLIC_DOCS_URL ?? (prod ? "https://docs.nullpoint.fun" : "http://localhost:3001");
 export const REPO_URL = process.env.NEXT_PUBLIC_REPO_URL ?? "https://github.com/demigohu/nullpoint";
 export const STATUS_URL = process.env.NEXT_PUBLIC_STATUS_URL ?? "https://status.nullpoint.fun";
