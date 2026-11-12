@@ -1,146 +1,243 @@
 # NullPoint
 
-A USDC vault on NEAR that earns perpetual-futures funding without taking a position on price. It holds a coin (BTC, ETH or NEAR) in NEAR Intents and an equal short on Hyperliquid, so price moves cancel and the hourly funding is what's left. An AI agent runs it. A NEAR smart contract owns both accounts through Chain Signatures and decides where the money may go; the agent can trade but can't withdraw.
+**Deposit USDC on NEAR and earn the funding that Hyperliquid traders pay, without betting on price and without handing the money to the bot that runs it.**
 
-Built at NEAR HACKATHON, November 2026. Live on **NEAR mainnet** (real USDC, $100 cap) and **NEAR testnet** (free test USDC).
+NullPoint is a vault. It holds a coin (BTC, ETH or NEAR) in NEAR Intents and an equal short of that coin on Hyperliquid. When the price moves, one side gains what the other loses. What's left is funding: the fee that traders betting on prices going up pay, every hour, to the people betting against them.
+
+How it works in one line: a NEAR contract owns the vault's Intents account and its Hyperliquid account through **Chain Signatures**; an **agent** brings signed **1Click** quotes that the contract checks before NEAR's signers sign anything; an **AI on NEAR AI Cloud** picks the coin inside limits it can't change; and the agent's own keys can trade but can't withdraw. It runs on NEAR mainnet with real USDC (capped at $100 while unaudited) and on testnet with free test USDC.
+
+<p align="center"><img src="docs/readme/landing.png" alt="NullPoint landing page: a grid of + and − cells, the wordmark, and the line 'Earn from crypto without betting on it.'" width="760"></p>
+
+<!-- VIDEO_URL -->
+**▶ Demo video:** linked from the hackathon submission and the X post.
+
+Built for **NEAR HACKATHON** (November 2026), tracks **Unstoppable DeFi**, **AI Security & Defense** and **Agent Economy**. Independent project; not affiliated with NEAR, Hyperliquid or 1Click.
 
 | | |
 |---|---|
-| App (deposit, withdraw, live dashboard) | https://nullpoint.fun · source [`apps/web`](apps/web) |
-| Docs (23 pages, 14 diagrams, live checks against the chain) | https://docs.nullpoint.fun · source [`apps/docs`](apps/docs) |
-| Status (uptime of both vaults) | https://status.nullpoint.fun |
-| Mainnet vault (source verified on NearBlocks) | [`vault.nullpoint.near`](https://nearblocks.io/address/vault.nullpoint.near) |
-| Testnet vault (source verified on NearBlocks) | [`vault.nullpoint.testnet`](https://testnet.nearblocks.io/address/vault.nullpoint.testnet) |
-| Demo video | in the X post linked from the hackathon submission |
+| App | https://nullpoint.fun |
+| Docs (23 pages, 14 diagrams, live checks) | https://docs.nullpoint.fun |
+| Status | https://status.nullpoint.fun |
+| Mainnet vault, source verified | [`vault.nullpoint.near`](https://nearblocks.io/address/vault.nullpoint.near) |
+| Testnet vault, source verified | [`vault.nullpoint.testnet`](https://testnet.nearblocks.io/address/vault.nullpoint.testnet) |
 
-## The problem
+## Run it in 3 commands (no wallet, no keys, no money)
 
-Funding on perpetual futures pays whoever is on the uncrowded side, and the classic way to collect it is the basis trade: hold a coin and short the same amount. Today funds and exchanges run that trade with their own exchange keys, so depositors trust whoever holds them, and a bot that can trade can usually also withdraw. Funding also moves between coins, and a vault stuck on one coin misses it.
+```sh
+git clone https://github.com/demigohu/nullpoint && cd nullpoint
+npm install
+npm run demo        # Node 24+, about a minute
+```
 
-## What NullPoint does about it
+The demo reads the live vaults and checks the main claims. Real output from 12 Nov 2026 (UTC), trimmed a little, from a run where 1Click was timing out so the demo fell back to a recorded quote:
 
-- **A contract owns the exchange account.** Through NEAR Chain Signatures the vault contract controls one Ethereum-style address. That address is both its NEAR Intents account (holding the coin) and its Hyperliquid account (holding the short). Nothing leaves either unless the contract asks NEAR's MPC network to sign it.
-- **The agent can trade and nothing else.** It holds a NEAR function-call key that can only call the vault, and a Hyperliquid trading key that can't withdraw or send.
-- **Swaps are verified, then signed.** The agent brings a 1Click quote; the contract checks 1Click's ed25519 signature, that the vault is recipient and refund address, the price against its own oracle, the size and freshness, then builds the transfer itself. A stolen agent key can't route money anywhere else.
-- **The contract prices the vault.** It reads balances from `intents.near`, prices them with signed 1Click quotes, and checks the agent's Hyperliquid report against what it expects; a report it can't explain pauses the vault.
-- **An AI picks the coin inside fixed limits.** A model on NEAR AI Cloud, in a TEE with signed answers, chooses hold, switch or wait in USDC. Limits it can't override: BTC/ETH/NEAR only, 1-2x leverage, two switches a day, six-hour hold, one-week payback. Every decision goes on-chain with the enclave's address.
+```text
+1. Live vault on NEAR testnet
+   NAV 995.98 USDC (posted 48s ago), 979.39 shares, paused: false
+   short on Hyperliquid: -193.3 NEAR; account 330.550822 USDC
 
-## Try it
+2. One EVM address, controlled by the vault contract through NEAR Chain Signatures
+   recomputed from the MPC root key: 0x55c7c56049847f23540209b7dbd401bf242b5908
+   configured in the contract:       0x55c7c56049847f23540209b7dbd401bf242b5908 ✅
+   Hyperliquid agents approved by that address (signed by MPC): nullpoint-keeper 0x5788b8619093e8f3a8dec1ebe479989b627d9023
 
-Needs Node 24+ and npm 11. `npm test` also needs Rust with `cargo-near` (contract tests).
+3. A real 1Click quote (mainnet), verified like vault.sign_quote verifies it
+   1Click didn't answer (…timeout…), using a recorded one
+   recorded real quote from contracts/vault/testdata, recipient 0x5e33437e5b871f1aa9e252dd00a36c53dfcb9a8d
+   ed25519 signature by 1Click's manager key: ✅
+   same quote with the recipient swapped to an attacker: ✅ rejected
 
-1. **Clone and install:** `git clone https://github.com/demigohu/nullpoint && cd nullpoint && npm install`
-2. **Run the demo, no keys or money:** `npm run demo` → five checks against live data:
-   1. the live testnet vault's state and its short on Hyperliquid,
-   2. the vault's address recomputed from its contract account through NEAR Chain Signatures and matched with the configured one (✅),
-   3. a real mainnet 1Click quote whose ed25519 signature verifies the way the contract checks it (✅), and the same quote with the recipient changed to an attacker rejected (✅),
-   4. the vault's real position repriced 20% up and down, with the value moving by only the small unhedged remainder,
-   5. a compromised AI's requests (SOL, 20x, withdraw to `0xdead`) blocked by the limits (✅ ×3).
-3. **Run the tests:** `npm test` → shared-code and field tests pass, 25 contract unit tests pass (real mainnet 1Click quotes, a real MPC signature, forged and replayed quotes refused), 2 integration tests pass on a local NEAR sandbox. Works on a clean clone without any `.env`.
-4. **Open the app on testnet:** https://nullpoint.fun (or `npm run dev` → http://localhost:3000) → connect a NEAR testnet wallet → account menu (top right) → **Get 100 test USDC**.
-5. **Deposit:** enter an amount → the review runs the contract's own checks first (shares you'll get, the 0.5% fee, the cap) → sign one transaction → your shares appear at once.
-6. **Watch the dashboard:** within a minute or two the agent sends collateral to Hyperliquid, opens the short, then buys the coin → each step shows in the activity log with its transaction, and the hedge gap returns to about zero.
-7. **Withdraw:** sign `request_withdraw` → the withdrawal shows requested → signed → paid, with links to the signing and payout transactions → USDC lands in your wallet, usually within 1-3 minutes on testnet.
-8. **Check every claim against the chain:** https://docs.nullpoint.fun/verify → six claims checked live for mainnet and testnet, with the command to repeat each one.
-9. **See it with real money:** https://docs.nullpoint.fun/mainnet → the mainnet vault's live position and every transaction of its first day.
-10. **Try to break it** (needs the testnet agent keys): `npm run attack` → the agent's own keys try `withdraw3`, `usdSend`, `agentSendAsset` and a quote paying an attacker; all are refused. `npm run attack:llm` (needs a NEAR AI key) → prompt injection and a compromised model, all blocked.
+4. The live position, with the price moved ±20%: spot and short cancel
+   194.58365925456982 NEAR held, -193.3 NEAR short, mark $3.422
+   -20%: spot -$133.17, short +$132.29 -> NAV $996.04 -> $995.16
+   +20%: spot +$133.17, short -$132.29 -> NAV $996.04 -> $996.92
 
-Running the whole system on your own testnet accounts: [docs → Run it yourself](apps/docs/content/docs/run-it.mdx).
+5. A compromised strategist asks for the attacker's wish list
+   ✅ blocked ROTATE SOL       -> target SOL not allowlisted
+   ✅ blocked SET_LEVERAGE 20  -> leverage 20 outside 1-2
+   ✅ blocked WITHDRAW 0xdead  -> unknown action WITHDRAW
+```
 
-## For reviewers
+Then `npm test` (needs Rust and `cargo-near` as well): shared-code tests, 25 contract unit tests built on real mainnet 1Click quotes and a real MPC signature, and 2 integration tests on a local NEAR sandbox. Both commands work on a clean clone with no `.env`.
 
-| Claim | Check | Expected |
+**What to look for:**
+- Step 2: the ✅ means the address that owns the money on Hyperliquid and in NEAR Intents is derived from the contract account itself. No person holds that key.
+- Step 3: change one field of a signed 1Click quote and the contract's check fails. That's what stops the agent from routing a swap to itself.
+- Step 4: a 20% move shifts the vault by under $1, the small part of the coin that isn't hedged yet.
+- Step 5: the AI's answers pass through fixed limits; "withdraw" isn't even an action it can express.
+
+## What works, and where it's verified
+
+All times UTC.
+
+| Feature | What happens | Verified |
 |---|---|---|
-| The contract, not a person, owns the vault's Intents and Hyperliquid accounts | `npm run demo` step 2; docs → Verify | recomputed address equals the configured one |
-| Swaps can only pay the vault | `cd contracts && cargo test -p vault` | forged recipient, forged signature, replayed quote all rejected |
-| The agent can trade but can't withdraw | `npm run attack`; docs → Verify lists the approved agent key live | Hyperliquid refuses every transfer; the contract refuses the bad quote |
-| The contract computes the share price | `near contract call-function as-read-only vault.nullpoint.near get_state json-args '{}' network-config mainnet now` | NAV, balances and prices from signed quotes |
-| A bad report pauses the vault | contract tests `hedge_and_account_value_checks`, `account_value_is_checked_against_the_last_report` | pass |
-| AI decisions are signed and on-chain | `get_decisions` on either vault; `npm run attack:llm` | chat id and enclave signing address per decision; injected requests blocked |
-| Withdrawals don't depend on the agent | `npm run e2e:testnet`; contract `execute_withdraw` has no caller check | payout submitted from the user's account |
-| It runs with real money | docs → Mainnet proof; https://status.nullpoint.fun | live position, transaction list, uptime |
-| Contract source matches the deployed code | NearBlocks contract tab for both vaults | verified (reproducible build, NEP-330) |
+| **The contract owns the accounts** | `vault.nullpoint.near` derives `0x610d…b939` through `v1.signer`. That address holds the coin in `intents.near` and the short on Hyperliquid | **Mainnet**, 12 Nov: NEAR's signers signed `approveAgent` for the trading key at the contract's request ([`BWsqw7Cc…`](https://nearblocks.io/txns/BWsqw7CcbZ54rQpRhtAxXY85kYuf6NMsQQu3QP7BqsaX)). `npm run demo` recomputes the address on testnet |
+| **Deposit** | `ft_transfer_call` to the vault mints shares in the same transaction, minus a 0.5% fee | **Mainnet**, 12 Nov: 44 USDC deposited and swept into the vault's Intents account ([`G5cmNQxc…`](https://nearblocks.io/txns/G5cmNQxcqLA2sYy4L5xQGV8VjgqxpThbz31TxGfzWjEb)) |
+| **Verify-then-sign swaps** | The agent brings a 1Click quote; the contract checks 1Click's signature, recipient, price, size and age, builds the transfer, asks NEAR's signers to sign; the agent submits it to `/v0/submit-intent` | **Mainnet**, 12 Nov: 14.77 USDC of collateral to Hyperliquid, 14.45 arrived ([`G9ManbtA…`](https://nearblocks.io/txns/G9ManbtAdVcFvedKdRg4VAbcXueZg9TRfZPFpwDKSwD4)); 29.32 USDC of BTC bought ([`6Q4Yuh5N…`](https://nearblocks.io/txns/6Q4Yuh5NCyGcyGjgPngXxPTUk7cPqUVuiAWDuWygTork)). Both 1Click `SUCCESS`. Contract tests reject forged, redirected and replayed quotes |
+| **Short first** | Every swap adjusts the short before the coin changes; if Hyperliquid refuses the order, the swap doesn't happen | **Mainnet**, 12 Nov: short 0.0004 BTC at 17:49:07, BTC bought at 17:49:33. Hedged result: 0.00040764 nBTC against 0.0004 BTC short |
+| **The contract prices the vault** | Balances read from `intents.near`, priced with signed 1Click quotes; the agent's Hyperliquid report must land within 2% of what the contract expects or the vault pauses | **Testnet**, 12 Nov: a report the contract couldn't explain paused the vault until the cause was fixed (see [Lessons](apps/docs/content/docs/lessons.mdx)). Contract tests `hedge_and_account_value_checks`, `account_value_is_checked_against_the_last_report` |
+| **Withdraw** | `request_withdraw` → the agent frees USDC → `fulfill_withdraw` (NEAR's signers sign the payout) → `execute_withdraw` | **Mainnet**, 12 Nov: 5 shares → 4.81 USDC ([`8ViwcjoZ…`](https://nearblocks.io/txns/8ViwcjoZWNkZmdWRsywVop1GjxAvRftwP4p8UBdcW3rj)). **Testnet**: 500 shares → 504.00 USDC after the agent sold BTC twice and pulled collateral ([`3rfBhyzf…`](https://testnet.nearblocks.io/txns/3rfBhyzfAbXBLVmGGp8F6zKRwBLftbTJY81WyypvAE3Y)) |
+| **Withdraw without the agent** | `execute_withdraw` has no caller check; a signed payout can only pay the person who asked | **Testnet**, 11 Nov: payout submitted from the user's own account ([`ALJ1g82Q…`](https://testnet.nearblocks.io/txns/ALJ1g82Qeg4VgBjt9r4pvhnWgmunWoKoo874rXQWJAYX)). `npm run e2e:testnet` |
+| **Switching coins** | When another coin's funding pays back the ~0.4% cost within a week, the vault moves in capped steps, short first | **Testnet**, 12 Nov: BTC → NEAR in six runs over about 15 minutes, costing 0.45% of the vault ([`3ArGZtZr…`](https://testnet.nearblocks.io/txns/3ArGZtZr6VYXSZmbGJyEcrqdWwmp4dGgEWaD8jT7bLL3), first step) |
+| **AI decisions on the record** | Each decision is stored on-chain with the model's chat id and the enclave's signing address, accepted or not | **Testnet**, 12 Nov: staging that switch, the AI refused to move into NEAR because its open interest was only about $168k; the fixed rule switched. Both are in `get_decisions` |
+| **The agent can't steal** | Its NEAR key can only call the vault; its Hyperliquid key can only trade | `npm run attack`: `withdraw3`, `usdSend`, `agentSendAsset` and a quote paying an attacker are all refused |
+| **Crash recovery** | Every fund move is journaled and finished after a restart | **Testnet**, 12 Nov: `resumed move to 42b26344ce…` on the first run after a restart |
+| **Monitoring** | `/api/health` checks both vaults (paused, reporting, hedge, agent gas, key expiry) and answers 503 when something is wrong; Uptime Kuma emails the owner | https://status.nullpoint.fun |
+| **Verified source** | Reproducible builds (NEP-330, Docker) | NearBlocks shows both vault contracts as verified |
 
-## Mainnet
+The full mainnet transaction list, step by step: [docs → Mainnet proof](apps/docs/content/docs/mainnet.mdx).
 
-| | |
-|---|---|
-| Vault | [`vault.nullpoint.near`](https://nearblocks.io/address/vault.nullpoint.near), reproducible build of `8e28abf` |
-| Owner and treasury | `nullpoint.near` |
-| Agent | [`agent.nullpoint.near`](https://nearblocks.io/address/agent.nullpoint.near) (function-call key, vault only) |
-| Vault address in NEAR Intents and on Hyperliquid (`v1.signer`, path `hl-master`) | [`0x610da6eff2adec2aae201c2970fdafe66189b939`](https://app.hyperliquid.xyz/explorer/address/0x610da6eff2adec2aae201c2970fdafe66189b939) |
-| Agent's Hyperliquid trading key | `0xd8b2be1be359685bd052cd5924541f38575ddb71` |
+<p align="center"><img src="docs/readme/dashboard.png" alt="NullPoint dashboard on testnet while hedging NEAR: share price chart with a marked AI decision, both legs, leverage 2.00x, hedge ratio 99.7%" width="760"></p>
 
-First day (12 Nov 2026, UTC):
+## Judge path
 
-| Step | Transaction |
-|---|---|
-| Deploy and init the vault | [`J1ZHrMaE…`](https://nearblocks.io/txns/J1ZHrMaEqAbciW8wMxMY61W1bzkg3vLiTeF8qjfVWpbU) |
-| Deposit 44 USDC, swept into the vault's Intents account | [`G5cmNQxc…`](https://nearblocks.io/txns/G5cmNQxcqLA2sYy4L5xQGV8VjgqxpThbz31TxGfzWjEb) |
-| 1Click quote verified, MPC-signed collateral to Hyperliquid (14.77 sent, 14.45 arrived) | [`G9ManbtA…`](https://nearblocks.io/txns/G9ManbtAdVcFvedKdRg4VAbcXueZg9TRfZPFpwDKSwD4) |
-| MPC-signed `approveAgent` for the trading key | [`BWsqw7Cc…`](https://nearblocks.io/txns/BWsqw7CcbZ54rQpRhtAxXY85kYuf6NMsQQu3QP7BqsaX) |
-| Short 0.0004 BTC first, then buy 29.32 USDC of BTC through 1Click | [`6Q4Yuh5N…`](https://nearblocks.io/txns/6Q4Yuh5NCyGcyGjgPngXxPTUk7cPqUVuiAWDuWygTork) |
-| Collateral pulled back from Hyperliquid for a withdrawal | [`6yWgxsy7…`](https://nearblocks.io/txns/6yWgxsy7tm2MFh1dmBV5T6JKCNgX8krY88oVQic3pCMK) |
-| Withdrawal paid: 5 shares → 4.81 USDC | [`8ViwcjoZ…`](https://nearblocks.io/txns/8ViwcjoZWNkZmdWRsywVop1GjxAvRftwP4p8UBdcW3rj) |
+**A. No wallet (5 minutes).** `npm run demo` and `npm test` above. Then open https://docs.nullpoint.fun/verify: six claims about who can move the money, each checked live against both vaults when the page loads, each with the command to repeat it.
 
-All eleven steps, and what we learned from them: [docs → Mainnet proof](apps/docs/content/docs/mainnet.mdx), [docs → Lessons from mainnet](apps/docs/content/docs/lessons.mdx).
+**B. Testnet, with a NEAR testnet wallet (10 minutes).**
+1. Open https://nullpoint.fun, connect a testnet wallet, and choose **Get 100 test USDC** in the account menu (top right).
+2. **Vault → Deposit.** The review runs the contract's own checks on your numbers (shares, the 0.5% fee, the cap) before your wallet opens. Sign one transaction; your shares appear at once.
+3. **Dashboard.** Within a minute or two the agent sends collateral to Hyperliquid, opens the short and buys the coin. Each step appears in the activity log with its transaction and the exact payload NEAR's signers signed. The hedge gap returns to about zero.
+4. **Vault → Withdraw.** Your withdrawal goes requested → signed → paid, with links to the signing and payout transactions. USDC is back in your wallet in 1-3 minutes.
 
-## Testnet
+**C. Mainnet, read only.** Switch the account menu to mainnet. The dashboard shows the real position; https://docs.nullpoint.fun/mainnet lists every transaction of the first day. Depositing is possible but not needed; the cap is $100.
 
-NEAR Intents and 1Click have no testnet (hackathon rule Q-007), so testnet runs the same contract against stand-ins with the same interfaces: `verifier.nullpoint.testnet` (copies `intents.near`, with real ERC-191 signature checks), test USDC with an open mint, and a mock 1Click whose signing key the testnet vault trusts. NEAR's MPC network (`v1.signer-prod.testnet`) and Hyperliquid testnet are the real ones.
+**D. Try to break it.** `npm run attack` (needs the testnet agent keys) and `npm run attack:llm` (needs a NEAR AI key). Without keys: `cd contracts && cargo test -p vault` covers forged, redirected and replayed quotes and bad reports.
 
-| | |
-|---|---|
-| Vault | [`vault.nullpoint.testnet`](https://testnet.nearblocks.io/address/vault.nullpoint.testnet) |
-| Vault address (Intents stand-in + Hyperliquid testnet) | [`0x55c7c56049847f23540209b7dbd401bf242b5908`](https://app.hyperliquid-testnet.xyz/explorer/address/0x55c7c56049847f23540209b7dbd401bf242b5908) |
-| Agent | [`keeper.nullpoint.testnet`](https://testnet.nearblocks.io/address/keeper.nullpoint.testnet) (named before the rename to "agent") |
-| Intents stand-in · test USDC | [`verifier.nullpoint.testnet`](https://testnet.nearblocks.io/address/verifier.nullpoint.testnet) · [`usdc.nullpoint.testnet`](https://testnet.nearblocks.io/address/usdc.nullpoint.testnet) |
+## How the money moves
 
-| Step (12 Nov 2026, UTC) | Transaction |
-|---|---|
-| Switch BTC → NEAR: short moved first, then the coin, in capped steps | [`3ArGZtZr…`](https://testnet.nearblocks.io/txns/3ArGZtZr6VYXSZmbGJyEcrqdWwmp4dGgEWaD8jT7bLL3) |
-| Withdrawal of 500 shares paid after the agent sold coin and pulled collateral | [`3rfBhyzf…`](https://testnet.nearblocks.io/txns/3rfBhyzfAbXBLVmGGp8F6zKRwBLftbTJY81WyypvAE3Y) |
-| Withdrawal executed from the user's own account (11 Nov) | [`ALJ1g82Q…`](https://testnet.nearblocks.io/txns/ALJ1g82Qeg4VgBjt9r4pvhnWgmunWoKoo874rXQWJAYX) |
-
-## How it's built
-
-```
-contracts/vault          NEAR contract (Rust, near-sdk): shares, fees, quote verification, MPC signing, report checks, AI decision log
-contracts/mock-verifier  testnet stand-in for intents.near (real ERC-191 checks)
-contracts/mock-ft        testnet USDC with an open mint
-apps/agent               the agent (Node, TypeScript): sweep, hedge, report, rotate, pay withdrawals; testnet and mainnet
-apps/web                 Next.js app: deposit and withdraw with a review of every transaction, dashboard, /api/health
-apps/docs                Fumadocs site: start here, how it works, verify, developers
-packages/core            shared TypeScript: RPC, MPC address derivation, 1Click message format, Hyperliquid signing, strategy limits
-scripts/                 demo, attacks, simulations, end-to-end test, deploy (testnet and mainnet), keys
+```mermaid
+flowchart LR
+  you([Your wallet])
+  subgraph near[NEAR]
+    vault[Vault contract]
+    subgraph acct[Vault's Intents account]
+      idle[(Idle USDC)]
+      coin[(Coin: nBTC, ETH, wNEAR)]
+    end
+  end
+  subgraph hl[Hyperliquid, same address]
+    coll[(Collateral)]
+    short[[Short perp]]
+  end
+  you -- deposit --> vault
+  vault -- sweep --> idle
+  idle -- 1Click, signed by the contract --> coll
+  coll --- short
+  idle -- 1Click, signed by the contract --> coin
+  coin -- sell for a withdrawal or a switch --> idle
+  coll -- 1Click, signed by the contract --> idle
+  idle -- payout signed by NEAR's signers --> you
 ```
 
-Each folder has its own README. Architecture with diagrams: [docs → Architecture](apps/docs/content/docs/architecture.mdx). Product spec: [PRD.md](PRD.md) (Indonesian). Design system: [apps/web/DESIGN.md](apps/web/DESIGN.md).
+About two thirds of the vault holds the coin and one third is collateral, so the short is the same size as the coin at 2x leverage on Hyperliquid.
 
-## Tracks and NEAR features
+Every arrow out of the vault's accounts is a payload the contract built and NEAR's MPC network signed:
 
-Submitted to **Unstoppable DeFi** (`defi`), **AI Security & Defense** (`security`) and **Agent Economy** (`agents`).
+```mermaid
+sequenceDiagram
+  autonumber
+  participant A as Agent
+  participant C as 1Click
+  participant V as Vault contract
+  participant M as NEAR Chain Signatures
+  A->>C: quote (recipient = vault, refund = vault)
+  C-->>A: quote + deposit address + ed25519 signature
+  A->>V: sign_quote(message, signature)
+  V->>V: 1Click signature, recipient, refund, assets,<br/>price vs oracle, size cap, age, never used
+  V->>M: sign the one transfer it built itself
+  M-->>V: signature, stored on-chain
+  A->>C: /v0/submit-intent, then /v0/status until SUCCESS
+```
 
-| NEAR feature | How NullPoint uses it |
+A stolen agent key could at worst pick the worst quote that still passes the price check (1.5% per swap), or trade the short badly. It can't send the money anywhere but a 1Click deposit address tied to a quote that pays the vault.
+
+## What the AI decides, and what is plain code
+
+| AI (NEAR AI Cloud, in a TEE) | Plain code |
 |---|---|
-| NEAR smart contract | The vault: shares, fees, the share price, every rule about where money may go |
-| Chain Signatures (`v1.signer`) | The vault's own address on Hyperliquid and in NEAR Intents; signs Intents transfers, withdrawals, Hyperliquid `sendAsset` and `approveAgent`, only for payloads the contract built |
-| NEAR Intents and the 1Click API | Swaps, collateral to and from Hyperliquid (`hypercore`), `/v0/submit-intent`, and signed quotes as the price oracle the contract verifies |
-| Function-call access keys | The agent's NEAR key can only call the vault; it can't move NEAR or call anything else |
-| NEAR AI Cloud (TEE) | The AI strategist runs in an enclave; its answers are signed and checked against the attestation, and recorded on-chain |
+| Every 30 minutes, whether to hold, switch coin, park in USDC, come back, or change leverage. It answers in a closed JSON schema with no address or amount fields | Everything that touches money: which quote, how much, where, when to pay a withdrawal |
+| Model: `deepseek-ai/DeepSeek-V4.1-Flash-1017`. Its answer is signed in the enclave and checked against the enclave's attestation before use | The limits (`packages/core/src/strategy.ts`): BTC/ETH/NEAR only, 1-2x, two switches per 24 h, six-hour hold, one-week payback on measured funding, confidence ≥ 0.6 |
+| Sees live funding, open interest, what the vault holds, and the payback of each switch, computed for it | A fixed rule makes the same kind of decision when the model is down or its answer fails the signature check |
+| | The contract: verifying quotes, building every payload, pricing the vault, checking reports, pausing |
 
-## Fees
+## What the contract signs, and nothing else
 
-0.5% on deposit and 0.5% on withdrawal (both stay in the vault to pay for each person's own swaps), and 5% of gains above the previous high to the treasury. The contract caps them at 1%, 1% and 20%. Details: [docs → Fees](apps/docs/content/docs/fees.mdx).
+| Payload | Standard | Built from |
+|---|---|---|
+| Intents transfer | ERC-191, for `intents.near` | A verified 1Click quote: one transfer of the quoted amount to the quoted deposit address |
+| Intents withdrawal | ERC-191 | A queued withdrawal: USDC to the account that asked |
+| Hyperliquid `sendAsset` | EIP-712 | A verified 1Click quote back to the vault |
+| Hyperliquid `approveAgent` | EIP-712 | The owner's request, by address and name |
 
-## Disclosure
+## What running it on mainnet taught us
 
-- **Built in the hackathon window.** The repository starts on 10 Nov 2026 (`create-turbo` starter); no code from before the hackathon. No existing product on another chain.
-- **Starters and libraries:** Turborepo (`create-turbo`), Next.js, React, Tailwind CSS, Fumadocs, Mermaid, GSAP, Lenis, Motion, Phosphor Icons; near-sdk, cargo-near, near-kit, near-api-js, @hot-labs/near-connect, near-connect-hooks; viem, @noble/curves, @noble/hashes, @scure/base; @nktkas/hyperliquid; @defuse-protocol/one-click-sdk-typescript.
-- **AI-written code:** large parts of the code, tests, docs and copy were written with an AI coding assistant (Claude Code) and reviewed by the team.
-- **Not audited.** Mainnet is capped at $100. In this build the owner can upgrade the contract.
-- **Secrets:** none in the repository. Keys live in `.env`, `.env.mainnet` and `.keys/`, all git-ignored; see [`.env.example`](.env.example).
+- **Hyperliquid charges 1 USDC to send to an address it hasn't seen**, and 1Click uses a fresh deposit address per quote. Testnet never showed it. Fix: a larger dust allowance on mainnet, and collateral comes back only in 20 USDC steps; small withdrawals sell coin instead.
+- **Hyperliquid won't approve a trading key for an empty account.** Bootstrap order: deposit, send collateral (no trading key needed), then approve.
+- **1Click's flat fee is large on small transfers**, so mainnet sends collateral in 10 USDC steps.
+- **A late report used to pause the vault.** A stale price now drops the report instead; only values the contract can't explain pause it.
+- **An RPC from the other network** in the agent's config stalled testnet for an afternoon. The agent now refuses to start with one.
 
-## License
+Details and fixes: [docs → Lessons from mainnet](apps/docs/content/docs/lessons.mdx).
 
-[MIT](LICENSE)
+## Run the whole thing yourself
+
+On testnet with your own accounts (about 15 minutes; needs `near-cli-rs`, Rust and `cargo-near`):
+
+```sh
+OWNER=you.testnet npm run deploy:testnet                 # vault, Intents stand-in, test USDC, agent account
+cd scripts && OWNER=you.testnet node add-agent-keys.ts    # restricted agent keys into .env
+OWNER=you.testnet node approve-agent.ts                   # trading key approved through the contract
+cd .. && npm run agent                                    # the agent, every 60 s
+npm run dev                                               # web on :3000, docs on :3001
+```
+
+Fill the rest of `.env` from [`.env.example`](.env.example) (a NEAR AI key for the AI; without it the rule decides). Mainnet uses `scripts/deploy-mainnet.sh`, one step per command, printing its plan by default: [docs → Deploy and verify](apps/docs/content/docs/deploy.mdx). Both agents run on one server under pm2 (`ecosystem.config.cjs`).
+
+NEAR Intents and 1Click have no testnet, so testnet uses stand-ins with the same interfaces: `verifier.nullpoint.testnet` (real ERC-191 checks), test USDC with an open mint, and a mock 1Click with its own signing key. NEAR's MPC network and Hyperliquid testnet are real. [docs → Testnet and mainnet](apps/docs/content/docs/networks.mdx).
+
+## Repository
+
+```
+contracts/vault          NEAR contract (Rust): shares, fees, quote checks, MPC signing, report checks, AI decision log
+contracts/mock-verifier  testnet stand-in for intents.near
+contracts/mock-ft        testnet USDC
+apps/agent               the agent (Node, TypeScript), testnet and mainnet
+apps/web                 Next.js app: deposit, withdraw, dashboard, /api/health
+apps/docs                Fumadocs site with live checks and diagrams
+packages/core            shared TypeScript: RPC, address derivation, 1Click format, Hyperliquid, strategy limits
+scripts/                 demo, attacks, simulations, e2e test, deploy, keys
+```
+
+Each folder has its own README: [web](apps/web/README.md) · [docs](apps/docs/README.md) · [agent](apps/agent/README.md) · [contracts](contracts/README.md) · [core](packages/core/README.md) · [scripts](scripts/README.md). Product spec: [PRD.md](PRD.md) (Indonesian). Design system: [apps/web/DESIGN.md](apps/web/DESIGN.md).
+
+## NEAR features used
+
+| Feature | Where |
+|---|---|
+| NEAR smart contract | The vault: shares, fees, share price, every rule about where money may go |
+| Chain Signatures (`v1.signer`) | The vault's own address on Hyperliquid and in NEAR Intents; signs Intents transfers, withdrawals, Hyperliquid `sendAsset` and `approveAgent` |
+| NEAR Intents and the 1Click API | Swaps, collateral to and from Hyperliquid, `/v0/submit-intent`, and signed quotes the contract uses as its price oracle |
+| Function-call access keys | The agent's key can only call the vault |
+| NEAR AI Cloud (TEE) | The strategist model, with signed answers checked against attestation |
+
+## Fees and limits
+
+0.5% on deposit and 0.5% on withdrawal, both kept in the vault to pay for each person's own swaps. 5% of gains above the previous high goes to the treasury as shares. The contract caps these at 1%, 1% and 20%. Mainnet deposits are capped at $100. Honest limits: the vault inherits Hyperliquid's and the bridges' risk, a fast enough rally can still liquidate a 2x short, the agent's report isn't trustless (up to 2% drift per report would pass), and the owner can upgrade the contract in this build. [docs → Risks](apps/docs/content/docs/risks.mdx).
+
+## Built during the hackathon
+
+Everything here was written during NEAR HACKATHON: the repository starts on 10 Nov 2026 from the `create-turbo` starter, whose template apps were replaced. No code predates the hackathon, and NullPoint isn't an existing product on another chain. Large parts of the code, tests, docs and copy were written with an AI coding assistant (Claude Code) and reviewed by the team. No secrets are in the repository; keys live in `.env`, `.env.mainnet` and `.keys/`, all git-ignored.
+
+## Credits and licences
+
+Repository code: **MIT** ([LICENSE](LICENSE)). Versions are in `package-lock.json` and `contracts/Cargo.lock`.
+
+- **NEAR:** near-sdk 5 and cargo-near (MIT or Apache-2.0), near-api-js (MIT and Apache-2.0), near-kit, @hot-labs/near-connect, near-connect-hooks (MIT). NEAR Chain Signatures, NEAR Intents, the 1Click API and NEAR AI Cloud are used as services.
+- **1Click:** @defuse-protocol/one-click-sdk-typescript (ISC), used to check our quote-message builder against the official hash.
+- **Hyperliquid:** @nktkas/hyperliquid (MIT).
+- **Crypto:** viem, @noble/curves, @noble/hashes, @scure/base, json-stable-stringify (MIT).
+- **Web and docs:** Next.js, React, Tailwind CSS, Turborepo, Fumadocs, Mermaid, Lenis, Motion, Phosphor Icons (MIT); GSAP (GSAP Standard "no charge" licence).
+- **Fonts:** Archivo and JetBrains Mono via Google Fonts (SIL OFL-1.1).
+
+Names of products and protocols are descriptive. This project isn't affiliated with or endorsed by NEAR, Hyperliquid, 1Click or DeepSeek.

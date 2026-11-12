@@ -4,9 +4,10 @@
 // 2. the vault's MPC address, recomputed   5. the guardrail vs a compromised strategist
 // 3. a real mainnet 1Click quote, signature verified the way the contract does it
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { ed25519 } from "@noble/curves/ed25519.js";
 import { base58 } from "@scure/base";
-import { verifyQuoteSignature } from "@defuse-protocol/one-click-sdk-typescript";
-import { ASSETS, deriveEvmAddress, getQuote, guardrail, hlInfo, signedMessage, view, type Context, type Market } from "@nullpoint/core";
+import { ASSETS, ONECLICK_MANAGER_PUBKEY, deriveEvmAddress, getQuote, guardrail, hlInfo, signedMessage, view, type Context, type Market } from "@nullpoint/core";
 
 const VAULT = "vault.nullpoint.testnet";
 const ok = (b: boolean) => (b ? "✅" : "❌");
@@ -27,19 +28,34 @@ const agents = await hlInfo<{ name: string; address: string }[]>("testnet", { ty
 console.log(`   Hyperliquid agents approved by that address (signed by MPC): ${agents.map((a) => `${a.name} ${a.address}`).join(", ")}`);
 
 h("3. A real 1Click quote (mainnet), verified like vault.sign_quote verifies it");
+// Same check as contracts/vault/src/quote.rs: ed25519 over the base58 text of sha256(message).
+const b58 = (s: string) => base58.decode(s.replace(/^ed25519:/, ""));
+const signedBy1Click = (message: string, signature: string) =>
+  ed25519.verify(b58(signature), new TextEncoder().encode(base58.encode(createHash("sha256").update(message).digest())), b58(ONECLICK_MANAGER_PUBKEY));
 const vaultAddr = s.config.vault_address;
-const q = await getQuote({
-  dry: true, swapType: "EXACT_INPUT", slippageTolerance: 100, originAsset: "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
-  destinationAsset: "nep141:nbtc.bridge.near", amount: "20000000", depositType: "INTENTS", refundTo: vaultAddr, refundType: "INTENTS",
-  recipient: vaultAddr, recipientType: "INTENTS", deadline: new Date(Date.now() + 600_000).toISOString(),
-});
-const message = signedMessage(q);
-console.log(`   20 USDC -> ${q.quote.amountOutFormatted} BTC, recipient ${q.quoteRequest.recipient}`);
+let message = "", signature = "", source = "";
+for (let i = 0; i < 2 && !message; i++) {
+  try {
+    const q = await getQuote({
+      dry: true, swapType: "EXACT_INPUT", slippageTolerance: 100, originAsset: "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+      destinationAsset: "nep141:nbtc.bridge.near", amount: "20000000", depositType: "INTENTS", refundTo: vaultAddr, refundType: "INTENTS",
+      recipient: vaultAddr, recipientType: "INTENTS", deadline: new Date(Date.now() + 600_000).toISOString(),
+    });
+    [message, signature, source] = [signedMessage(q), q.signature, `fetched now: 20 USDC -> ${q.quote.amountOutFormatted} BTC`];
+  } catch (e) {
+    console.log(`   1Click didn't answer (${(e as Error).message.slice(0, 80)}…), ${i < 1 ? "retrying" : "using a recorded one"}`);
+  }
+}
+if (!message) {
+  // 1Click times out now and then; the contract's test fixture is a real 1Click quote, signature included.
+  const dir = new URL("../contracts/vault/testdata/", import.meta.url);
+  [message, signature, source] = [readFileSync(new URL("swap_usdc_btc.json", dir), "utf8").trim(), readFileSync(new URL("swap_usdc_btc.sig", dir), "utf8").trim(), "recorded real quote from contracts/vault/testdata"];
+}
+console.log(`   ${source}, recipient ${JSON.parse(message).recipient}`);
 console.log(`   signed bytes = base58(sha256(message)) = ${base58.encode(createHash("sha256").update(message).digest())}`);
-console.log(`   ed25519 signature by 1Click's manager key: ${ok(verifyQuoteSignature(q as never))}`);
-const forged = structuredClone(q);
-forged.quoteRequest.recipient = "0x000000000000000000000000000000000000dead";
-console.log(`   same quote with the recipient swapped to an attacker: ${ok(!verifyQuoteSignature(forged as never))} rejected`);
+console.log(`   ed25519 signature by 1Click's manager key: ${ok(signedBy1Click(message, signature))}`);
+const forged = message.replace(/"recipient":"[^"]*"/, '"recipient":"0x000000000000000000000000000000000000dead"');
+console.log(`   same quote with the recipient swapped to an attacker: ${ok(!signedBy1Click(forged, signature))} rejected`);
 
 h("4. The live position, with the price moved ±20%: spot and short cancel");
 // Today's holdings (the contract's last snapshot) and short (Hyperliquid), repriced at the mark ±20%.
