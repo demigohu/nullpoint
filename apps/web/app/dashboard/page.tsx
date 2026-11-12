@@ -100,7 +100,9 @@ export default async function Dashboard() {
       </section>
 
       <section className="grid gap-[var(--pad)] lg:grid-cols-12">
-        <div className="panel p-[var(--pad)] lg:col-span-8 lg:self-start">
+        {/* contents below lg, so the AI panel can drop below the side column on phones */}
+        <div className="contents lg:col-span-7 xl:col-span-8 lg:grid lg:content-start lg:gap-[var(--pad)]">
+        <div className="panel p-[var(--pad)]">
           <h2 className={H2}>
             <Term k="share price">Share price</Term> over time
           </h2>
@@ -118,7 +120,30 @@ export default async function Dashboard() {
           </div>
         </div>
 
-        <div className="grid content-start gap-[var(--pad)] lg:col-span-4">
+          <div className="panel p-[var(--pad)] max-lg:order-1">
+            <h2 className="chip">The AI vs the backup rule</h2>
+            <dl className="mt-3 grid gap-3 text-[14px] leading-[1.45]">
+              <div>
+                <dt className="font-mono text-[11px] uppercase tracking-[0.15em]">Latest AI decision</dt>
+                <dd>{lastAi ? <><b>{said(lastAi.action, lastAi.target)}</b> {ago(lastAi.ms)}, {lastAi.accepted ? "allowed" : "blocked"} by the limits</> : "None yet"}</dd>
+              </div>
+              <div>
+                <dt className="font-mono text-[11px] uppercase tracking-[0.15em]">The rule, on today&apos;s funding</dt>
+                <dd>{rule ? <><b>{said(rule.action, rule.target ?? null)}</b>: {rule.reasoning}{ruleOk ? "" : " (the limits would block it now)"}</> : "No funding data"}</dd>
+              </div>
+            </dl>
+            {lastAi && rule && (
+              <p className="mt-3 border-t border-tc pt-3 text-[13px]">
+                {holding(lastAi.action, lastAi.target, ctx.active) === holding(rule.action, rule.target, ctx.active)
+                  ? `They agree: hold ${holding(rule.action, rule.target, ctx.active)}.`
+                  : `They differ: the AI chose ${holding(lastAi.action, lastAi.target, ctx.active)}, the rule would pick ${holding(rule.action, rule.target, ctx.active)}. The AI weighs more than the rule (how long a spike lasts, market size); both answer to the same limits.`}
+              </p>
+            )}
+            <p className="mt-2 text-[12px] leading-[1.4]">The rule takes over whenever the AI is unavailable. Funding here is what the agent reads: Hyperliquid {net.hlChain}.</p>
+          </div>
+        </div>
+
+        <div className="grid content-start gap-[var(--pad)] lg:col-span-5 xl:col-span-4">
           <div className="panel p-[var(--pad)]">
             <h2 className="chip">Both sides right now</h2>
             <dl className="num mt-3 grid gap-2 text-[13px]">
@@ -168,27 +193,6 @@ export default async function Dashboard() {
             </p>
           </div>
 
-          <div className="panel p-[var(--pad)]">
-            <h2 className="chip">The AI vs the backup rule</h2>
-            <dl className="mt-3 grid gap-3 text-[14px] leading-[1.45]">
-              <div>
-                <dt className="font-mono text-[11px] uppercase tracking-[0.15em]">Latest AI decision</dt>
-                <dd>{lastAi ? <><b>{said(lastAi.action, lastAi.target)}</b> {ago(lastAi.ms)}, {lastAi.accepted ? "allowed" : "blocked"} by the limits</> : "None yet"}</dd>
-              </div>
-              <div>
-                <dt className="font-mono text-[11px] uppercase tracking-[0.15em]">The rule, on today&apos;s funding</dt>
-                <dd>{rule ? <><b>{said(rule.action, rule.target ?? null)}</b>: {rule.reasoning}{ruleOk ? "" : " (the limits would block it now)"}</> : "No funding data"}</dd>
-              </div>
-            </dl>
-            {lastAi && rule && (
-              <p className="mt-3 border-t border-tc pt-3 text-[13px]">
-                {holding(lastAi.action, lastAi.target, ctx.active) === holding(rule.action, rule.target, ctx.active)
-                  ? `They agree: hold ${holding(rule.action, rule.target, ctx.active)}.`
-                  : `They differ: the AI chose ${holding(lastAi.action, lastAi.target, ctx.active)}, the rule would pick ${holding(rule.action, rule.target, ctx.active)}. The AI weighs more than the rule (how long a spike lasts, market size); both answer to the same limits.`}
-              </p>
-            )}
-            <p className="mt-2 text-[12px] leading-[1.4]">The rule takes over whenever the AI is unavailable. Funding here is what the agent reads: Hyperliquid {net.hlChain}.</p>
-          </div>
         </div>
       </section>
 

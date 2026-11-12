@@ -8,7 +8,7 @@ export type Series = { key: string; label: string; dashed?: boolean; points: { x
 export type Marker = { x: number; label: string };
 
 // The SVG is drawn at the width it is shown, so text keeps its real size on phones.
-const PAD_WIDE = { l: 64, r: 92, t: 22, b: 30 }, PAD_NARROW = { l: 52, r: 72, t: 22, b: 30 };
+const PAD_WIDE = { l: 64, r: 92, t: 22, b: 30 }, PAD_NARROW = { l: 60, r: 72, t: 22, b: 30 };
 const HOUR = 3_600_000;
 const RANGES: [string, number][] = [["24H", 24 * HOUR], ["7D", 7 * 24 * HOUR], ["30D", 30 * 24 * HOUR], ["All", Infinity]];
 
