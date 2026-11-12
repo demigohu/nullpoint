@@ -18,6 +18,11 @@ const MPC_GAS: Gas = Gas::from_tgas(250);
 const CALLBACK_GAS: Gas = Gas::from_tgas(10);
 const XCC_GAS: Gas = Gas::from_tgas(30);
 const INTENT_TTL_MS: u64 = 5 * 60_000;
+/// Share prices (high-water mark) are stored as USDC per share scaled by this.
+const PRICE_ONE: u128 = 1_000_000_000_000;
+/// Caps the owner can't raise: entry/exit 1%, performance 20%.
+const MAX_FLOW_FEE_BPS: u32 = 100;
+const MAX_PERFORMANCE_FEE_BPS: u32 = 2_000;
 
 #[near]
 #[derive(BorshStorageKey)]
@@ -68,6 +73,13 @@ pub struct Params {
     pub max_price_age_s: u64,
     pub max_nav_age_s: u64,
     pub nav_history_interval_s: u64,
+    /// Kept in the vault: each depositor pays for the swaps that put their money to work, and each
+    /// leaver for the ones that take it out, instead of the other holders.
+    pub entry_fee_bps: u32,
+    pub exit_fee_bps: u32,
+    /// Share of gains above the high-water mark, minted as shares to `treasury`.
+    pub performance_fee_bps: u32,
+    pub treasury: AccountId,
 }
 
 #[near(serializers = [json, borsh])]
@@ -178,6 +190,8 @@ pub struct State {
     pub positions: Vec<Position>,
     pub account_value: U128,
     pub snapshot: Option<Snapshot>,
+    /// Highest share price the performance fee has been charged up to (USDC per share × 1e12).
+    pub high_water_mark: U128,
     pub signed_count: u32,
     pub withdrawal_count: u32,
 }
@@ -196,6 +210,8 @@ pub struct Contract {
     /// so the app can show what the shares earned.
     deposited: LookupMap<AccountId, u128>,
     total_shares: u128,
+    /// Share price × PRICE_ONE up to which gains have already paid the performance fee.
+    high_water_mark: u128,
     /// Deposited USDC still on this contract, not yet swept into the Intents account.
     pending_usdc: u128,
     /// USDC promised to fulfilled withdrawals that hasn't left the Intents account yet.
@@ -222,6 +238,13 @@ fn bps(amount: u128, bps: u32) -> u128 {
     amount * bps as u128 / 10_000
 }
 
+fn assert_fee_caps(p: &Params) {
+    require!(
+        p.entry_fee_bps <= MAX_FLOW_FEE_BPS && p.exit_fee_bps <= MAX_FLOW_FEE_BPS && p.performance_fee_bps <= MAX_PERFORMANCE_FEE_BPS,
+        "fee above cap"
+    );
+}
+
 #[near]
 impl Contract {
     #[init]
@@ -242,6 +265,7 @@ impl Contract {
 impl Contract {
     fn fresh(g: u8, owner: AccountId, agent: AccountId, config: Config, params: Params, assets: Vec<(String, String)>) -> Self {
         quote::decode_pubkey(&config.oneclick_pubkey);
+        assert_fee_caps(&params);
         Self {
             owner,
             agent,
@@ -255,6 +279,7 @@ impl Contract {
             shares: LookupMap::new(Key::Shares(g)),
             deposited: LookupMap::new(Key::Deposited(g)),
             total_shares: 0,
+            high_water_mark: 0,
             pending_usdc: 0,
             owed_usdc: 0,
             margin_net: 0,
@@ -282,6 +307,7 @@ impl Contract {
 
     pub fn set_params(&mut self, params: Params) {
         self.assert_owner();
+        assert_fee_caps(&params);
         self.params = params;
     }
 
@@ -327,12 +353,15 @@ impl Contract {
         require!(env::predecessor_account_id() == self.config.usdc, "only USDC");
         require!(!self.paused, "paused");
         let amount = amount.0;
+        // The entry fee buys no shares and stays in the vault.
+        let net = amount - bps(amount, self.params.entry_fee_bps);
         let shares = if self.total_shares == 0 {
-            amount
+            self.high_water_mark = 0; // an emptied vault starts over
+            net
         } else {
             let nav = self.fresh_nav();
             require!(nav > 0, "nav is zero");
-            amount * self.total_shares / nav
+            net * self.total_shares / nav
         };
         require!(shares > 0, "deposit too small");
         let nav_after = self.snapshot.as_ref().map_or(0, |s| s.nav.0) + amount;
@@ -346,6 +375,7 @@ impl Contract {
         self.shares.insert(sender_id, balance + shares);
         self.total_shares += shares;
         self.pending_usdc += amount;
+        self.raise_high_water_mark(nav_after);
         PromiseOrValue::Value(U128(0))
     }
 
@@ -421,6 +451,7 @@ impl Contract {
         let Ok(balances) = balances else { return env::log_str("balance read failed") };
         match self.check_and_value(&positions, account_value.0, &balances) {
             Ok(nav) => {
+                self.charge_performance_fee(nav);
                 self.positions = positions;
                 self.account_value = account_value.0;
                 self.last_report = Some((self.margin_net, self.assets.iter().map(|a| (a.price_in, a.price_out)).collect()));
@@ -557,13 +588,16 @@ impl Contract {
         let mut w = self.withdrawals.get(id as u32).cloned().expect("no such withdrawal");
         if w.status == "queued" {
             let nav = self.fresh_nav();
-            let usdc = w.shares.0 * nav / self.total_shares;
+            let value = w.shares.0 * nav / self.total_shares;
+            // The exit fee stays in the vault.
+            let usdc = value - bps(value, self.params.exit_fee_bps);
             let available = self.snapshot.as_ref().unwrap().usdc_in_verifier.0.saturating_sub(self.owed_usdc);
             require!(usdc <= available, "not enough idle USDC; unwind first");
             self.total_shares -= w.shares.0;
             if let Some(s) = self.snapshot.as_mut() {
                 s.nav = U128(nav - usdc);
             }
+            self.raise_high_water_mark(nav - usdc);
             self.owed_usdc += usdc;
             w.usdc = U128(usdc);
         } else {
@@ -636,6 +670,7 @@ impl Contract {
             positions: self.positions.clone(),
             account_value: U128(self.account_value),
             snapshot: self.snapshot.clone(),
+            high_water_mark: U128(self.high_water_mark),
             signed_count: self.signed.len(),
             withdrawal_count: self.withdrawals.len(),
         }
@@ -684,6 +719,35 @@ impl Contract {
         let ms = ms_from_iso(timestamp).expect("bad quote timestamp");
         require!(now_ms().saturating_sub(ms) <= self.params.max_price_age_s * 1000, "quote too old");
         ms
+    }
+
+    /// Entry and exit fees lift the share price without any earnings; raising the mark with them
+    /// keeps the performance fee off money that only pays for swaps.
+    fn raise_high_water_mark(&mut self, nav: u128) {
+        if self.total_shares > 0 {
+            self.high_water_mark = self.high_water_mark.max(nav * PRICE_ONE / self.total_shares);
+        }
+    }
+
+    /// Mints the treasury `performance_fee_bps` of the gain above the high-water mark, as shares, so
+    /// holders pay it only out of funding actually earned.
+    fn charge_performance_fee(&mut self, nav: u128) {
+        if self.total_shares == 0 || nav == 0 {
+            return;
+        }
+        let price = nav * PRICE_ONE / self.total_shares;
+        if price <= self.high_water_mark {
+            return;
+        }
+        let fee = bps((price - self.high_water_mark) * self.total_shares / PRICE_ONE, self.params.performance_fee_bps);
+        if fee > 0 && fee < nav {
+            let minted = fee * self.total_shares / (nav - fee);
+            let t = self.params.treasury.clone();
+            let balance = self.shares.get(&t).copied().unwrap_or(0);
+            self.shares.insert(t, balance + minted);
+            self.total_shares += minted;
+        }
+        self.high_water_mark = nav * PRICE_ONE / self.total_shares;
     }
 
     fn fresh_nav(&self) -> u128 {

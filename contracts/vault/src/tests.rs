@@ -57,6 +57,10 @@ fn vault() -> Contract {
             max_price_age_s: 120,
             max_nav_age_s: 600,
             nav_history_interval_s: 600,
+            entry_fee_bps: 0,
+            exit_fee_bps: 0,
+            performance_fee_bps: 0,
+            treasury: accounts(5),
         },
         vec![
             ("BTC".into(), "nep141:nbtc.bridge.near".into()),
@@ -264,4 +268,67 @@ fn cost_basis_follows_deposits_and_withdrawals() {
     assert_eq!(p.shares.0, 10_000_000);
     assert_eq!(p.deposited.0, 10_666_667); // 16 - floor(16 * 5/15)
     assert_eq!(v.get_holding(accounts(3)).deposited.0, 0);
+}
+
+fn vault_with_fees() -> Contract {
+    let mut v = vault();
+    ctx(accounts(0), 1_000);
+    v.set_params(Params { entry_fee_bps: 50, exit_fee_bps: 50, performance_fee_bps: 500, ..v.params.clone() });
+    v
+}
+
+#[test]
+fn entry_and_exit_fees_stay_in_the_vault() {
+    let mut v = vault_with_fees();
+    ctx(usdc(), 1_000);
+    let _ = v.ft_on_transfer(accounts(2), U128(10_000_000), String::new());
+    assert_eq!(v.get_shares(accounts(2)).0, 9_950_000);
+    v.snapshot = Some(Snapshot { nav: U128(10_000_000), ms: 1_000, usdc_in_verifier: U128(10_000_000), spot: vec![] });
+    // A second depositor pays their own entry: alice's shares are worth what she put in less hers.
+    let _ = v.ft_on_transfer(accounts(3), U128(10_000_000), String::new());
+    assert_eq!(v.get_shares(accounts(3)).0, 9_900_250); // 9.95 USDC at 10/9.95 per share
+    let price_before = v.snapshot.as_ref().unwrap().nav.0 * PRICE_ONE / v.total_shares;
+    // Leaving pays 0.5% of the value out; what stays lifts the share price for everyone else.
+    ctx(accounts(2), 2_000);
+    let id = v.request_withdraw(U128(9_950_000));
+    ctx(accounts(1), 2_000);
+    v.snapshot.as_mut().unwrap().ms = 2_000;
+    v.snapshot.as_mut().unwrap().usdc_in_verifier = U128(20_000_000);
+    let _ = v.fulfill_withdraw(id, "252812b3".into());
+    let value = 9_950_000 * 20_000_000 / 19_850_250u128;
+    assert_eq!(v.withdrawals[id as u32].usdc.0, value - value * 50 / 10_000);
+    assert!(v.snapshot.as_ref().unwrap().nav.0 * PRICE_ONE / v.total_shares > price_before);
+}
+
+#[test]
+fn performance_fee_only_on_gains_above_the_high_water_mark() {
+    let mut v = vault_with_fees();
+    ctx(usdc(), 1_000);
+    let _ = v.ft_on_transfer(accounts(2), U128(10_000_000), String::new());
+    let mark = v.high_water_mark;
+    assert_eq!(mark, 10_000_000 * PRICE_ONE / 9_950_000); // the entry fee itself is not a gain
+
+    // Below or at the mark: nothing minted.
+    v.charge_performance_fee(10_000_000);
+    v.charge_performance_fee(9_000_000);
+    assert_eq!(v.get_shares(accounts(5)).0, 0);
+
+    // Funding lifts NAV by 1 USDC: the treasury gets 5% of that gain as shares.
+    v.charge_performance_fee(11_000_000);
+    let t = v.get_shares(accounts(5)).0;
+    let treasury_value = t * 11_000_000 / v.total_shares;
+    assert!((49_000..=50_000).contains(&treasury_value), "{treasury_value}");
+    assert_eq!(v.high_water_mark, 11_000_000 * PRICE_ONE / v.total_shares);
+
+    // The same NAV reported again charges nothing more.
+    v.charge_performance_fee(11_000_000);
+    assert_eq!(v.get_shares(accounts(5)).0, t);
+}
+
+#[test]
+#[should_panic(expected = "fee above cap")]
+fn owner_cannot_raise_fees_past_the_caps() {
+    let mut v = vault();
+    ctx(accounts(0), 1_000);
+    v.set_params(Params { performance_fee_bps: 2_001, ..v.params.clone() });
 }

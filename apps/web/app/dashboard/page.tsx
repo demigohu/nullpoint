@@ -107,7 +107,7 @@ export default async function Dashboard() {
             <Term k="share price">Share price</Term> over time
           </h2>
           <p className="mt-1 max-w-[70ch] text-[13px] leading-[1.45]">
-            Each switch between coins costs about 0.4% in swaps, which shows up as a small step down at a ◆ marker. Funding earns it back over the following days.
+            Deposits and withdrawals pay their own swaps through a {state.params.entry_fee_bps / 100}% entry and {state.params.exit_fee_bps / 100}% exit cost that stays in the vault, so they barely move this line. A switch between coins costs about 0.4%, a small step down at a ◆ marker, which funding then has to earn back. NullPoint keeps {state.params.performance_fee_bps / 100}% of gains above the previous high.
           </p>
           <div className="mt-4">
             <LineChart

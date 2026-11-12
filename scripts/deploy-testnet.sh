@@ -86,7 +86,11 @@ INIT=$(cat <<EOF
     "dust_usdc": "500000",
     "max_price_age_s": 120,
     "max_nav_age_s": 600,
-    "nav_history_interval_s": 600
+    "nav_history_interval_s": 600,
+    "entry_fee_bps": 50,
+    "exit_fee_bps": 50,
+    "performance_fee_bps": 500,
+    "treasury": "$OWNER"
   },
   "assets": [["BTC", "nep141:nbtc.bridge.near"], ["ETH", "nep141:eth.bridge.near"], ["NEAR", "nep141:wrap.near"]]
 }

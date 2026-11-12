@@ -115,7 +115,11 @@ async fn setup(max_tvl: u128) -> (near_sandbox::Sandbox, Env) {
                 "dust_usdc": "500000",
                 "max_price_age_s": 120,
                 "max_nav_age_s": 600,
-                "nav_history_interval_s": 600
+                "nav_history_interval_s": 600,
+                "entry_fee_bps": 0,
+                "exit_fee_bps": 0,
+                "performance_fee_bps": 0,
+                "treasury": "owner.sandbox"
             },
             "assets": [["BTC", "nep141:nbtc.bridge.near"], ["ETH", "nep141:eth.bridge.near"], ["NEAR", "nep141:wrap.near"]]
         }),

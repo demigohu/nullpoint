@@ -180,7 +180,16 @@ Satu basis kode. Perbedaannya hanya jaringan, alamat verifier (`mock-verifier` |
 
 ### 6.1 Vault contract
 
-- Share: `shares = deposit * total_shares / nav` (share pertama 1:1). Pembulatan selalu menguntungkan vault.
+- Share: `shares = (deposit − entry fee) * total_shares / nav` (share pertama 1:1 terhadap deposit bersih). Pembulatan selalu menguntungkan vault.
+- **Fee** (diputuskan 12 Nov, sama di testnet dan mainnet):
+
+  | Fee | Besar | Ke mana | Kenapa |
+  |---|---|---|---|
+  | Entry | 0.5% deposit | Tetap di vault | Membayar swap 1Click, kirim margin dan short untuk deposit itu sendiri. Tanpa ini biaya masuk penyetor baru ditanggung penyetor lama (dilusi), dan deposit-lalu-withdraw berulang bisa dipakai membebani orang lain |
+  | Exit | 0.5% nilai withdraw | Tetap di vault | Sama, untuk jual koin dan tutup short |
+  | Performance | 5% dari kenaikan share price di atas high-water mark | Share baru dicetak untuk `treasury` saat `report_position` | Model bisnis protokol. Hanya dari funding yang benar-benar didapat; turun lalu naik kembali ke rekor tidak kena fee |
+
+  Batas atas dikunci di kontrak (entry/exit 1%, performance 20%), jadi owner tidak bisa menaikkan sembarangan lewat `set_params`. Entry/exit fee ikut menaikkan high-water mark, supaya performance fee tidak diambil dari uang yang hanya menutup biaya swap. Biaya rotasi koin tetap ditanggung semua pemegang share karena itu keputusan strategi bersama. `treasury` di testnet = `nullpoint.testnet`; mainnet = akun owner atau akun treasury terpisah (O2).
 - **NAV dihitung kontrak sendiri:**
 
   | Komponen | Sumber |
