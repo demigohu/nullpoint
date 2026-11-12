@@ -3,7 +3,7 @@ import { ActivityFeed } from "@/components/activity-feed";
 import { FieldCanvas } from "@/components/field/field-canvas";
 import { LineChart } from "@/components/line-chart";
 import { Term } from "@/components/term";
-import { describeDecision, describeSigned } from "@/lib/activity";
+import { describeDecision, describeFill, describeSigned, mergeFills } from "@/lib/activity";
 import { links } from "@/lib/config";
 import { currentNet, fundingRadar, vaultOverview } from "@/lib/data";
 import { MODES, modeOf } from "@/lib/modes";
@@ -34,7 +34,7 @@ export default async function Dashboard() {
       </main>
     );
   }
-  const { state, decisions, signed, nav, hl, spot, hedge } = ov;
+  const { state, decisions, signed, nav, hl, fills, spot, hedge } = ov;
   const L = links(net);
   const active = hedge.symbol;
   const activeRate = radar.find((r) => r.symbol === active)?.apr8h ?? 0;
@@ -64,7 +64,9 @@ export default async function Dashboard() {
   const said = (a: string, t: string | null) => `${a}${t ? ` ${t}` : ""}`;
   // Where each answer leaves the vault: HOLD keeps the current coin, PARK means USDC.
   const holding = (a: string, t: string | null | undefined, cur: string | null) => (a === "PARK" ? "USDC" : a === "ROTATE" || a === "RESUME" ? (t ?? cur) : cur ?? "USDC");
-  const feed = [...signed.map((s) => describeSigned(s, state.config.usdc_token_id)), ...decisions.map(describeDecision)].sort((a, b) => b.ms - a.ms);
+  // Fills older than this vault's first record belong to an earlier testnet reset of the same account.
+  const since = Math.min(...[signed[0]?.ms, nav[0]?.ms].filter((x): x is number => !!x));
+  const feed = [...signed.map((s) => describeSigned(s, state.config)), ...mergeFills(fills.filter((f) => f.time >= since)).map((f, i) => describeFill(f, i, L.hlTx)), ...decisions.map(describeDecision)].sort((a, b) => b.ms - a.ms);
   const markers = decisions.filter((d) => d.accepted && d.action in MOVES).map((d) => ({ x: d.ms, label: MOVES[d.action]!(d.target) }));
   const firstPrice = nav.length ? Number(nav[0]!.nav) / Number(nav[0]!.total_shares) : ov.sharePrice;
 
@@ -107,7 +109,7 @@ export default async function Dashboard() {
             <Term k="share price">Share price</Term> over time
           </h2>
           <p className="mt-1 max-w-[70ch] text-[13px] leading-[1.45]">
-            Deposits and withdrawals pay their own swaps through a {state.params.entry_fee_bps / 100}% entry and {state.params.exit_fee_bps / 100}% exit cost that stays in the vault, so they barely move this line. A switch between coins costs about 0.4%, a small step down at a ◆ marker, which funding then has to earn back. NullPoint keeps {state.params.performance_fee_bps / 100}% of gains above the previous high.
+            Rises as funding comes in. A ◆ marks a switch between coins, which costs about 0.4%.
           </p>
           <div className="mt-4">
             <LineChart
@@ -139,7 +141,7 @@ export default async function Dashboard() {
                   : `They differ: the AI chose ${holding(lastAi.action, lastAi.target, ctx.active)}, the rule would pick ${holding(rule.action, rule.target, ctx.active)}. The AI weighs more than the rule (how long a spike lasts, market size); both answer to the same limits.`}
               </p>
             )}
-            <p className="mt-2 text-[12px] leading-[1.4]">The rule takes over whenever the AI is unavailable. Funding here is what the agent reads: Hyperliquid {net.hlChain}.</p>
+            <p className="mt-2 text-[12px] leading-[1.4]">The rule decides when the AI is down. Both read Hyperliquid {net.hlChain} funding.</p>
           </div>
         </div>
 
@@ -162,7 +164,7 @@ export default async function Dashboard() {
                 <dd>{toLiq === null ? "-" : `+${toLiq.toFixed(0)}%`}</dd>
               </div>
             </dl>
-            <p className="mt-2 text-[12px] leading-[1.4]">The agent adds collateral if the account falls below 3x the margin Hyperliquid requires, long before liquidation.</p>
+            <p className="mt-2 text-[12px] leading-[1.4]">If the account drops below 3x the margin Hyperliquid requires, the agent adds collateral, long before liquidation.</p>
           </div>
 
           <div className="panel p-[var(--pad)]">
@@ -189,7 +191,7 @@ export default async function Dashboard() {
               })}
             </ul>
             <p className="mt-3 text-[12px] leading-[1.4]">
-              Payback is how many hours of extra funding it takes to earn back the 0.4% cost of switching. The agent only switches when that is 168 hours (7 days) or less.
+              Payback: hours of extra funding to cover the 0.4% cost of a switch. The agent switches only if it&apos;s 7 days or less.
             </p>
           </div>
 
@@ -199,8 +201,7 @@ export default async function Dashboard() {
       <section className="panel p-[var(--pad)]">
         <h2 className={H2}>Everything the vault did</h2>
         <p className="mt-1 max-w-[80ch] text-[13px] leading-[1.45]">
-          Every <Term k="MPC signature" /> the contract asked for and every decision the AI made, newest first. Filter by kind, and open any entry to see its
-          transaction, every field and the exact payload that was signed.
+          Every trade, short, transfer and AI decision, newest first. Open one to see its transaction and exactly what was signed.
         </p>
         <div className="mt-5">
           <ActivityFeed items={feed} explorer={net.nearExplorer} hlAccount={L.hlAddress(state.config.vault_address)} />

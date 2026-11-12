@@ -46,4 +46,5 @@ export const links = (c: NetConfig) => ({
   account: (a: string) => `${c.nearExplorer}/address/${a}`,
   tx: (h: string) => `${c.nearExplorer}/txns/${h}`,
   hlAddress: (a: string) => `${c.hlApp}/explorer/address/${a}`,
+  hlTx: (h: string) => `${c.hlApp}/explorer/tx/${h}`,
 });

@@ -41,8 +41,8 @@ const RISKS = [
 
 const STEPS = [
   ["Connect a NEAR wallet", "Any NEAR wallet works. Connecting only shares your account name; nothing is signed or sent."],
-  ["Deposit USDC", "You get shares at the vault's current share price, and the agent hedges your money within a minute or so. On testnet, get free test USDC from the account menu."],
-  ["Withdraw whenever you want", "Ask for your USDC back and it lands in your wallet, usually within 1-3 minutes. There's no lockup and no withdrawal fee."],
+  ["Deposit USDC", "You get shares at the vault's current share price, less a 0.5% deposit fee that pays for the swaps, and the agent hedges your money within a minute or so. On testnet, get free test USDC from the account menu."],
+  ["Withdraw whenever you want", "Ask for your USDC back and it lands in your wallet, usually within 1-3 minutes. There's no lockup, and a 0.5% fee pays for selling your part of the coin."],
 ] as const;
 
 const faq = (yearly: number): [string, string][] => [
@@ -50,9 +50,9 @@ const faq = (yearly: number): [string, string][] => [
   ["Where does the yield come from?", "From funding: the hourly fee that traders betting on prices going up pay to the traders betting against them. The vault is always on the side that gets paid, with an equal amount of the coin held so price swings cancel."],
   ["How much can I earn?", `It moves with funding. Over the last 30 days the hedged strategy made about ${yearly.toFixed(1)}% a year in a simulation on real Hyperliquid data. Some weeks it earns nothing, and the dashboard shows the live rate.`],
   ["When can I get my money back?", "Any time. Your USDC usually arrives within 1-3 minutes. If the agent is ever down for more than 10 minutes, the app lets you finish the withdrawal yourself."],
-  ["What does it cost?", "NullPoint takes no fee. The vault pays swap and trading costs out of its own balance, about 0.4% each time the agent switches coins, which is why it only switches when the extra yield pays that back within a week."],
+  ["What does it cost?", "0.5% when you deposit and 0.5% when you withdraw. Both go to the swaps that move your money in and out, so the people already in never pay for you. NullPoint keeps 5% of what the vault earns, and only above its previous high: if the share price dips, there's no fee until it has climbed back. Switching coins costs the vault about 0.4%, which is why the agent only switches when the extra yield pays that back within a week."],
   ["Can I lose money?", "Yes. Funding can turn negative, Hyperliquid or a bridge can fail, and a very sharp rally can hurt the short. The risks section above explains each one."],
-  ["Who holds the keys?", "The contract does, through NEAR Chain Signatures. The agent only has a trading key. The owner can pause the vault, change its limits and, in this hackathon build, upgrade the contract. There is no method that sends funds to the owner."],
+  ["Who holds the keys?", "The contract does, through NEAR Chain Signatures. The agent only has a trading key. The owner can pause the vault, change its limits and, in this hackathon build, upgrade the contract. No method sends the vault's funds to the owner; the only thing NullPoint receives is its 5% performance fee, as shares."],
 ];
 
 const title = "wdth-118 text-[clamp(2.2rem,4.6vw,5.4rem)] font-extrabold leading-[0.9] tracking-[-0.045em]";

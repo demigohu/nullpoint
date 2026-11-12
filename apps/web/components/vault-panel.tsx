@@ -109,10 +109,8 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
     ],
     fee: fee(100),
     notes: [
-      "Your shares arrive as soon as your wallet confirms.",
-      "Within a minute or so, the agent puts the USDC to work. You can watch it on the dashboard.",
-      "If the vault can't take the deposit for any reason, your USDC comes straight back.",
-      `The ${(chain?.params.entry_fee_bps ?? 50) / 100}% entry cost stays in the vault and pays for the swaps that put your money to work, so the people already in don't pay for your entry.`,
+      "Your shares arrive as soon as your wallet confirms. If the vault can't take the deposit, your USDC comes straight back.",
+      "Within a minute, the agent puts the USDC to work. You can watch it on the dashboard.",
     ],
     simulate: async () => {
       // Same math and limits as the vault's ft_on_transfer.
@@ -125,18 +123,18 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
       const p = priceOf(state);
       return {
         summary: { give: `${fmt(depositUnits)} USDC`, get: `≈${fmt(out)} shares` },
+        vaultFee: ["Deposit fee", `${fmt(cost)} USDC (${state.params.entry_fee_bps / 100}%). It pays for the swaps that put your money to work.`],
         checks: [
           { label: "You have the USDC", ok: usdc >= depositUnits, detail: `Your wallet holds ${fmt(usdc)} USDC.` },
           { label: "The vault is open", ok: !state.paused, detail: state.paused ? "The vault is paused, so it refuses deposits." : "It isn't paused." },
           { label: "The share price is fresh", ok: age <= state.params.max_nav_age_s, detail: Number.isFinite(age) ? `Updated ${ago(age)}. The contract won't take deposits on a price older than ${state.params.max_nav_age_s / 60} minutes.` : "There's no share price yet." },
           { label: "Under the vault's cap", ok: nav + depositUnits <= BigInt(state.params.max_tvl), detail: `The vault would hold $${fmt(nav + depositUnits)} of its $${fmt(state.params.max_tvl)} limit.` },
-          { label: "You receive shares", ok: out > 0n, detail: `About ${fmt(out)} shares, at $${p.toFixed(4)} each, for the ${fmt(net)} USDC left after the ${state.params.entry_fee_bps / 100}% entry cost (${fmt(cost)} USDC).` },
+          { label: "You receive shares", ok: out > 0n, detail: `About ${fmt(out)} shares, at $${p.toFixed(4)} each, for ${fmt(net)} USDC after the deposit fee.` },
         ],
         changes: [
           { label: "Wallet USDC", before: fmt(usdc), after: fmt(usdc - depositUnits) },
           { label: "Your shares", before: fmt(shares), after: fmt(shares + out) },
           { label: "Your value", before: `$${fmt(Number(shares) * p, 6)}`, after: `$${fmt(Number(shares + out) * p, 6)}` },
-          { label: "Entry cost (stays in the vault)", before: "0.00", after: fmt(cost) },
         ],
       };
     },
@@ -167,9 +165,7 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
     ],
     fee: fee(30),
     notes: [
-      "Your shares leave your balance right away. The USDC usually lands in your wallet within 1-3 minutes.",
-      "The exact amount uses the share price at the moment the agent pays you, so it can differ by a few cents.",
-      `The ${(chain?.params.exit_fee_bps ?? 50) / 100}% exit cost stays in the vault and pays for selling your part of the coin and closing its short.`,
+      "Your shares leave your balance now. The USDC usually lands in your wallet within 1-3 minutes, priced when the agent pays you, so it can differ by a few cents.",
       "This is the only thing you sign. If the payout takes more than 10 minutes, a button appears so you can finish it yourself.",
     ],
     simulate: async () => {
@@ -180,9 +176,9 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
       const paid = value * (1 - state.params.exit_fee_bps / 10_000);
       return {
         summary: { give: `${fmt(outUnits)} shares`, get: `≈$${fmt(paid, 6)} USDC` },
+        vaultFee: ["Withdrawal fee", `$${fmt(value - paid, 6)} (${state.params.exit_fee_bps / 100}%). It pays for selling your part of the coin and closing its short.`],
         checks: [
           { label: "You have the shares", ok: outUnits > 0n && outUnits <= shares, detail: `You hold ${fmt(shares)} shares.` },
-          { label: "Exit cost", ok: true, detail: `${state.params.exit_fee_bps / 100}% of $${fmt(value, 6)}, about $${fmt(value - paid, 6)}. It stays in the vault.` },
           { label: "The vault is running", ok: !state.paused, detail: state.paused ? "The vault is paused, so the payout waits until it resumes." : "It isn't paused, so the agent will pick it up." },
         ],
         changes: [
@@ -236,13 +232,13 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
           {shares === null ? "…" : fmt(shares)} <Term k="share">shares</Term> × ${sharePrice.toFixed(4)} · in your wallet: {usdc === null ? "…" : fmt(usdc)} USDC
         </p>
         {basis !== null && basis.deposited > 0n && shares !== null && (() => {
-          // Earnings count from the money that went to work: the entry cost is shown on its own line.
+          // Earnings count from the money that went to work: the deposit fee is shown on its own line.
           const working = Number(basis.deposited - basis.entryCost);
           const earned = Number(shares) * sharePrice - working;
           return (
             <p className="num mt-2 text-[14px]">
               You put in ${fmt(basis.deposited)}
-              {basis.entryCost > 0n && <> · <Term k="entry cost">entry cost</Term> ${fmt(basis.entryCost)}</>} · {earned >= 0 ? "earned" : "down"} since{" "}
+              {basis.entryCost > 0n && <> · <Term k="deposit fee">deposit fee</Term> ${fmt(basis.entryCost)}</>} · {earned >= 0 ? "earned" : "down"} since{" "}
               <b>${fmt(Math.abs(earned), 6)}</b> ({((earned / working) * 100).toFixed(2)}%)
             </p>
           );
@@ -283,7 +279,7 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
               </div>
               <input id="wd" inputMode="decimal" autoComplete="off" value={withdrawShares} onChange={(e) => setWithdrawShares(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" className={fieldClass} aria-describedby="wd-help" />
               <p id="wd-help" className="text-[14px] leading-[1.5]">
-                {outUnits > 0n ? `Worth about $${fmt(Number(outUnits) * sharePrice * (1 - (chain?.params.exit_fee_bps ?? 0) / 10_000), 6)} at today's price, after the exit cost. ` : "How many shares to cash out. "}The USDC lands in your wallet on its own, usually within 1-3 minutes.
+                {outUnits > 0n ? `Worth about $${fmt(Number(outUnits) * sharePrice * (1 - (chain?.params.exit_fee_bps ?? 0) / 10_000), 6)} at today's price, after the withdrawal fee. ` : "How many shares to cash out. "}The USDC lands in your wallet on its own, usually within 1-3 minutes.
               </p>
               <button disabled={!outUnits} className="btn mt-3 w-full" data-label="Review withdrawal">Review withdrawal</button>
             </form>

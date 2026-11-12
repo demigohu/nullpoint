@@ -144,6 +144,17 @@ pub struct Signed {
     /// Raw MPC response JSON once signed.
     pub signature: Option<String>,
     pub ms: u64,
+    /// The verified 1Click quote behind a sign_quote entry, so the log can say what was bought or sent.
+    pub swap: Option<Swap>,
+}
+
+#[near(serializers = [json, borsh])]
+#[derive(Clone)]
+pub struct Swap {
+    pub from: String,
+    pub to: String,
+    pub amount_in: U128,
+    pub min_out: U128,
 }
 
 #[near(serializers = [json, borsh])]
@@ -348,7 +359,7 @@ impl Contract {
             "agentName": name,
             "nonce": nonce,
         });
-        self.request_signature("hl_approve_agent", action.to_string(), digest)
+        self.request_signature("hl_approve_agent", action.to_string(), digest, None)
     }
 
     // ---------- deposits ----------
@@ -511,6 +522,7 @@ impl Contract {
         let deposit = q.deposit_address.clone().expect("quote has no depositAddress");
         let (usdc, hl) = (self.config.usdc_token_id.clone(), self.config.hl_usdc_asset.clone());
         let (amount_in, min_out) = (q.amount_in(), q.min_amount_out());
+        let swap = Some(Swap { from: q.origin_asset.clone(), to: q.destination_asset.clone(), amount_in: U128(amount_in), min_out: U128(min_out) });
 
         if q.origin_asset == hl {
             // Margin in: Hyperliquid USDC (8 dp) -> Intents USDC (6 dp).
@@ -548,7 +560,7 @@ impl Contract {
                 "fromSubAccount": "",
                 "nonce": nonce,
             });
-            return self.request_signature("hl_send_asset", action.to_string(), digest);
+            return self.request_signature("hl_send_asset", action.to_string(), digest, swap);
         }
 
         require!(q.deposit_type == "INTENTS" && q.refund_type == "INTENTS", "must spend from the Intents balance");
@@ -573,7 +585,7 @@ impl Contract {
             &salt_hex,
         );
         let digest = erc191_digest(&payload);
-        self.request_signature("intent_transfer", payload, digest)
+        self.request_signature("intent_transfer", payload, digest, swap)
     }
 
     // ---------- withdrawals ----------
@@ -622,7 +634,7 @@ impl Contract {
         w.signed_id = Some(self.signed.len() as u64);
         self.withdrawals.replace(id as u32, w);
         let digest = erc191_digest(&payload);
-        self.request_signature("intent_ft_withdraw", payload, digest)
+        self.request_signature("intent_ft_withdraw", payload, digest, None)
     }
 
     /// Submits a signed withdrawal to the verifier. Anyone can call, so the agent can't hold funds.
@@ -851,9 +863,9 @@ impl Contract {
         .to_string()
     }
 
-    fn request_signature(&mut self, kind: &str, payload: String, digest: [u8; 32]) -> Promise {
+    fn request_signature(&mut self, kind: &str, payload: String, digest: [u8; 32], swap: Option<Swap>) -> Promise {
         let id = self.signed.len() as u64;
-        self.signed.push(Signed { kind: kind.into(), payload, digest: hex(&digest), signature: None, ms: now_ms() });
+        self.signed.push(Signed { kind: kind.into(), payload, digest: hex(&digest), signature: None, ms: now_ms(), swap });
         Promise::new(self.config.mpc.clone())
             .function_call(
                 "sign".to_string(),

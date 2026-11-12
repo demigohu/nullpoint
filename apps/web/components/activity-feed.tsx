@@ -7,6 +7,7 @@ import type { Activity, Category } from "@/lib/activity";
 const FILTERS: [Category | "all", string][] = [
   ["all", "All"],
   ["trade", "Trades"],
+  ["hedge", "Short"],
   ["collateral", "Collateral"],
   ["withdrawal", "Withdrawals"],
   ["ai", "AI decisions"],
@@ -89,6 +90,7 @@ function Detail({ item, explorer, hlAccount, onClose }: { item: Activity | null;
     if (!item) return;
     ref.current?.showModal();
     setHash(undefined);
+    if (!item.methods.length) return setHash(null); // Hyperliquid-only entry: nothing on NEAR
     fetch(`/api/tx?ms=${item.ms}&methods=${item.methods.join(",")}`)
       .then((r) => r.json())
       .then((j: { hash: string | null }) => setHash(j.hash))
@@ -120,7 +122,9 @@ function Detail({ item, explorer, hlAccount, onClose }: { item: Activity | null;
           <dl className="grid gap-x-4 gap-y-2 border-t border-tc pt-4 text-[13px] sm:grid-cols-[auto_1fr]">
             <dt className="font-mono text-[12px]">Transaction</dt>
             <dd className="num break-all">
-              {hash === undefined ? (
+              {item.hlTx ? (
+                <a href={item.hlTx} target="_blank" rel="noreferrer" className="underline underline-offset-2">On Hyperliquid ↗</a>
+              ) : hash === undefined ? (
                 <span className="blink">looking it up…</span>
               ) : hash ? (
                 <a href={`${explorer}/txns/${hash}`} target="_blank" rel="noreferrer" className="underline underline-offset-2">{hash} ↗</a>

@@ -12,6 +12,8 @@ export type Change = { label: string; before: string; after: string };
 export type Simulation = {
   /** The one-line answer to "what do I give, what do I get". */
   summary: { give: string; get: string };
+  /** The vault's own fee for this amount, in plain words; shown next to the network fee. */
+  vaultFee?: [label: string, text: string];
   checks: Check[];
   changes: Change[];
 };
@@ -159,6 +161,7 @@ export function TxDialog({ net, spec, onClose }: { net: NetConfig; spec: TxSpec 
               })()}
 
               <section className="text-[14px] leading-[1.5]">
+                {sim.vaultFee && <p><b>{sim.vaultFee[0]}:</b> {sim.vaultFee[1]}</p>}
                 <p><b>Network fee:</b> {spec.fee}</p>
                 <h3 className="mt-3 font-mono text-[11px] uppercase tracking-[0.2em]">What happens next</h3>
                 <ul className="mt-1 grid gap-1">

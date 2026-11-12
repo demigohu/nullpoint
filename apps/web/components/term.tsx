@@ -3,7 +3,7 @@ const GLOSSARY = {
   share: "Your slice of the vault. The number of shares you hold stays the same; what each one is worth goes up.",
   "share price": "Everything the vault owns, minus what it owes, divided by all shares. The contract works it out itself from signed prices.",
   funding: "An hourly payment between traders on Hyperliquid. When more people bet on prices rising, they pay the people betting on prices falling.",
-  "entry cost": "0.5% of each deposit, kept in the vault to pay for the swaps that put your money to work. It's paid once, so it isn't counted against what you earn.",
+  "deposit fee": "0.5%, paid once when you deposit. It covers the swaps that put your money to work, so the people already in don't pay for you. It isn't counted against what you earn.",
   short: "A position that gains when the price falls.",
   hedge: "Holding a coin and an equal short, so price moves cancel.",
   agent: "The bot that runs the vault every minute, with an AI model that picks the coin. It can place trades. It can't move money out.",

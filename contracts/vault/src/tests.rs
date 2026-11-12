@@ -133,6 +133,9 @@ fn signs_verified_swap_quote_once() {
     assert_eq!(p["intents"][0]["receiver_id"], q["depositAddress"]);
     assert_eq!(p["intents"][0]["tokens"][USDC_ID], q["amountIn"]);
     assert_eq!(s.digest, hex(&erc191_digest(&s.payload)));
+    let swap = s.swap.as_ref().unwrap();
+    assert_eq!((swap.from.as_str(), swap.to.as_str()), (q["originAsset"].as_str().unwrap(), q["destinationAsset"].as_str().unwrap()));
+    assert_eq!(swap.amount_in.0.to_string(), q["amountIn"].as_str().unwrap());
 }
 
 #[test]

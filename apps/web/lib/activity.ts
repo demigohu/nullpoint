@@ -2,9 +2,9 @@
 // sentence, a category for filtering, and the fields shown when a row is opened. Tx hashes aren't
 // stored on-chain; the detail view looks them up by time (app/api/tx).
 import { ASSETS } from "@nullpoint/core";
-import type { Decision, Signed } from "./data";
+import type { Decision, Fill, Signed } from "./data";
 
-export type Category = "trade" | "collateral" | "withdrawal" | "ai" | "setup";
+export type Category = "trade" | "hedge" | "collateral" | "withdrawal" | "ai" | "setup";
 export type Activity = {
   key: string;
   ms: number;
@@ -20,6 +20,8 @@ export type Activity = {
   methods: string[];
   /** Hyperliquid action: the detail view links the vault's Hyperliquid account. */
   hl?: boolean;
+  /** Hyperliquid transaction, for entries that never touch NEAR (fills). */
+  hlTx?: string;
 };
 
 const strip = (id: string) => id.replace(/^nep141:/, "");
@@ -31,7 +33,56 @@ function token(id: string, usdcToken: string) {
   return a ? { symbol: a.symbol, decimals: a.decimals } : { symbol: strip(id), decimals: 0 };
 }
 
-export function describeSigned(s: Signed & { id: number }, usdcToken: string): Activity {
+type Assets = { usdc_token_id: string; hl_usdc_asset: string };
+
+/** What a verified quote did, from its route: the contract stores the quote it checked. */
+function describeSwap(sw: NonNullable<Signed["swap"]>, cfg: Assets): Pick<Activity, "category" | "title" | "text"> & { fields: [string, string][] } {
+  const hlUsdc = { symbol: "USDC", decimals: 8 };
+  const from = sw.from === cfg.hl_usdc_asset ? hlUsdc : token(sw.from, cfg.usdc_token_id);
+  const to = sw.to === cfg.hl_usdc_asset ? hlUsdc : token(sw.to, cfg.usdc_token_id);
+  const give = `${fmt(sw.amount_in, from.decimals)} ${from.symbol}`;
+  const get = `${fmt(sw.min_out, to.decimals)} ${to.symbol}`;
+  const fields: [string, string][] = [["Paid", give], ["Received at least", get]];
+  if (sw.to === cfg.hl_usdc_asset)
+    return { category: "collateral", title: "Collateral sent to Hyperliquid", text: `Sent ${give} to Hyperliquid as collateral for the short.`, fields };
+  if (sw.from === cfg.hl_usdc_asset)
+    return { category: "collateral", title: "Collateral back from Hyperliquid", text: `Brought ${give} of collateral back into the vault.`, fields };
+  if (from.symbol === "USDC") return { category: "trade", title: `Bought ${to.symbol}`, text: `Bought at least ${get} with ${give}.`, fields };
+  if (to.symbol === "USDC") return { category: "trade", title: `Sold ${from.symbol}`, text: `Sold ${give} for at least ${get}.`, fields };
+  return { category: "trade", title: `Switched ${from.symbol} to ${to.symbol}`, text: `Swapped ${give} for at least ${get}.`, fields };
+}
+
+/** One order filled in pieces (IOC orders walk the book) becomes one entry: summed size, average price. */
+export function mergeFills(fills: Fill[]): Fill[] {
+  const byOrder = new Map<number, Fill>();
+  for (const f of fills) {
+    const m = byOrder.get(f.oid);
+    if (!m) { byOrder.set(f.oid, { ...f }); continue; }
+    const sz = Number(m.sz) + Number(f.sz);
+    m.px = String((Number(m.px) * Number(m.sz) + Number(f.px) * Number(f.sz)) / sz);
+    m.sz = String(Number(sz.toFixed(8)));
+    m.fee = String(Number(m.fee) + Number(f.fee));
+    m.closedPnl = String(Number(m.closedPnl) + Number(f.closedPnl));
+    m.time = Math.max(m.time, f.time);
+  }
+  return [...byOrder.values()];
+}
+
+/** Short-leg fills: "Open Short" / "Close Short" from Hyperliquid's userFills. */
+export function describeFill(f: Fill, i: number, hlTx: (h: string) => string): Activity {
+  const usd = Number(f.sz) * Number(f.px);
+  const opened = f.dir.startsWith("Open");
+  const pnl = Number(f.closedPnl);
+  return {
+    key: `f${f.hash}${i}`, ms: f.time, ok: true, category: "hedge", methods: [], hl: true, hlTx: hlTx(f.hash),
+    title: `${opened ? "Opened" : "Reduced"} the ${f.coin} short`,
+    text: `${opened ? "Shorted" : "Bought back"} ${f.sz} ${f.coin} at $${Number(f.px).toLocaleString(undefined, { maximumFractionDigits: 2 })} ($${usd.toFixed(2)}) on Hyperliquid, with the agent's trading key.`,
+    fields: [["Direction", f.dir], ["Size", `${f.sz} ${f.coin}`], ["Price", `$${Number(f.px).toLocaleString(undefined, { maximumFractionDigits: 2 })}`], ["Trading fee", `$${Number(f.fee).toFixed(4)}`], ...(opened ? [] : [["Closed PnL", `$${pnl.toFixed(4)}`] as [string, string]])],
+  };
+}
+
+export function describeSigned(s: Signed & { id: number }, cfg: Assets): Activity {
+  const usdcToken = cfg.usdc_token_id;
   const signed = !!s.signature && s.signature !== "error";
   const base = { key: `s${s.id}`, ms: s.ms, ok: signed, raw: s.payload };
   const common: [string, string][] = [
@@ -41,6 +92,11 @@ export function describeSigned(s: Signed & { id: number }, usdcToken: string): A
   ];
   try {
     const p = JSON.parse(s.payload);
+    if (s.swap) {
+      const d = describeSwap(s.swap, cfg);
+      const to: [string, string] = ["To (1Click deposit address)", p.destination ?? p.intents?.[0]?.receiver_id ?? "-"];
+      return { ...base, ...d, hl: s.kind === "hl_send_asset", methods: ["sign_quote"], fields: [...d.fields, to, ...common], text: `${d.text} The contract checked the 1Click quote first.` };
+    }
     if (s.kind === "hl_send_asset")
       return {
         ...base, category: "collateral", title: "Collateral back from Hyperliquid", hl: true, methods: ["sign_quote"],
