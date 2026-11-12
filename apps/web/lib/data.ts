@@ -54,7 +54,8 @@ export const vaultOverview = cache(async (c: NetConfig) => {
   const [decisions, signed, nav, hl, fills] = await Promise.all([
     view<[number, Decision][]>(c.network, c.vault, "get_decisions", { from: "0", limit: 500 }).then((d) => d.map(([id, x]) => ({ id, ...x }))),
     last<Signed>(c, "get_signed", state.signed_count, 200),
-    view<[number, NavPoint][]>(c.network, c.vault, "get_nav_history", { from: "0", limit: 500 }).then((d) => d.map(([, x]) => x)),
+    // A record taken while the vault was empty has no share price (0 / 0).
+    view<[number, NavPoint][]>(c.network, c.vault, "get_nav_history", { from: "0", limit: 500 }).then((d) => d.map(([, x]) => x).filter((x) => x.total_shares !== "0")),
     hlInfo(c.hlChain, { type: "clearinghouseState", user: state.config.vault_address }).catch(() => null),
     hlInfo(c.hlChain, { type: "userFills", user: state.config.vault_address }).catch(() => []) as Promise<Fill[]>,
   ]);
