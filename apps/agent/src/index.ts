@@ -132,6 +132,7 @@ function plan(decisions: OnChainDecision[], nowMs: number) {
     leverage: lev ? Number(lev.target) : LIMITS.maxLeverage,
     lastStrategistMs: decisions.filter((d) => d.source !== "agent").at(-1)?.ms ?? 0,
     lastHoldRecordMs: decisions.filter((d) => d.action === "HOLD").at(-1)?.ms ?? 0,
+    lastHoldSource: decisions.filter((d) => d.action === "HOLD").at(-1)?.source,
   };
 }
 
@@ -171,7 +172,8 @@ async function decide(ctx: Context, mkts: Market[], p: ReturnType<typeof plan>) 
   const g = guardrail(decision, ctx, mkts, LIMITS_USED);
   const accepted = g.ok;
   log(`${source} -> ${decision.action}${decision.target ? " " + decision.target : ""} (${decision.confidence}) ${accepted ? "ACCEPTED" : "REJECTED: " + (g as { reason: string }).reason}: ${decision.reasoning}`);
-  if (decision.action !== "HOLD" || ctx.nowMs - p.lastHoldRecordMs >= RECORD_HOLD_EVERY_MS) {
+  // A HOLD from a different source (AI after rule, or back) is news, so it is recorded at once.
+  if (decision.action !== "HOLD" || source !== p.lastHoldSource || ctx.nowMs - p.lastHoldRecordMs >= RECORD_HOLD_EVERY_MS) {
     const note = (accepted ? decision.reasoning : `rejected: ${(g as { reason: string }).reason} | ${decision.reasoning}`).slice(0, 280);
     const target = decision.action === "SET_LEVERAGE" ? String(decision.leverage) : (decision.target ?? null);
     await agentCall("report_decision", { decision: { ms: 0, hash, source, action: decision.action, target, accepted, note, chat_id: chatId, signing_address: signer } });
