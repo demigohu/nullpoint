@@ -36,6 +36,9 @@ const STRAY_MIN_USDC = 10_500_000n; // leftover of a non-target asset worth movi
 const MAX_WITHDRAWALS_PER_CYCLE = 5; // each needs an MPC signature (~15s)
 const WITHDRAW_PULL_EXTRA_USDC = 1_000_000n; // covers the 0.2 USDC Hyperliquid withdrawal fee + quote slippage
 const MARGIN_TOL_USDC = 5_000_000n; // margin drift tolerated before moving USDC (1Click minimum is 0.5)
+// Mainnet Hyperliquid charges a flat 1 USDC to send to a fresh 1Click deposit address (1Click adds 0.2),
+// so margin comes back only in pulls where that is small; withdrawals sell spot (~0.3%) instead.
+const HL_PULL_MIN_USDC = MAINNET ? 20_000_000n : MARGIN_TOL_USDC;
 const PRICE_SAMPLE_USDC = 1_000_000n; // quote ~1 USDC worth of each asset for pricing
 const ROTATION_COST_BPS = 40; // swap (~30 bps) + closing and opening shorts (~2 x 4.5 bps)
 const STRATEGIST_EVERY_MS = Number(process.env.STRATEGIST_INTERVAL_MIN ?? 30) * 60_000;
@@ -375,7 +378,7 @@ async function cycle() {
     } else if (margin === "shrink") {
       const amount = balances[ti + 1]! / 4n;
       log(`MARGIN LOW, no idle USDC: selling a quarter of the ${p.target} spot to shrink the hedge (sign tx ${await moveViaQuote({ originAsset: targetToken, destinationAsset: usdcToken, amount: amount.toString(), ...swapSlip })})`);
-    } else if (shortfall > 0n && hlFree >= shortfall + WITHDRAW_PULL_EXTRA_USDC) {
+    } else if (shortfall > 0n && hlFree >= shortfall + WITHDRAW_PULL_EXTRA_USDC && (shortfall >= HL_PULL_MIN_USDC || ti < 0 || usdValue(ti) < MIN_TRADE_USDC)) {
       // Raise USDC for the next queued withdrawal directly, ignoring rebalancing thresholds: otherwise a
       // shortfall split across both legs (each under its threshold) would leave the queue stuck.
       const amount6 = min(shortfall + WITHDRAW_PULL_EXTRA_USDC, cap);
@@ -404,7 +407,7 @@ async function cycle() {
       const excess = usdValue(ti) - spotTarget;
       const amount = (balances[ti + 1]! * min(excess, cap)) / usdValue(ti);
       log(`sold ${p.target} for USDC (sign tx ${await moveViaQuote({ originAsset: targetToken, destinationAsset: usdcToken, amount: amount.toString(), ...swapSlip })})`);
-    } else if (hlValue > marginTarget + MARGIN_TOL_USDC && hlFree >= MARGIN_TOL_USDC) {
+    } else if (hlValue > marginTarget + HL_PULL_MIN_USDC && hlFree >= HL_PULL_MIN_USDC) {
       const amount6 = min(min(hlValue - marginTarget, hlFree), cap);
       log(`pulled ${Number(amount6) / 1e6} USDC margin from Hyperliquid (sign tx ${await moveViaQuote({
         originAsset: hlUsdc, destinationAsset: usdcToken, amount: (amount6 * 100n).toString(), slippageTolerance: 100,

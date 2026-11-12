@@ -21,6 +21,8 @@ ONECLICK_PUBKEY=$(node --input-type=module -e "import { ONECLICK_MANAGER_PUBKEY 
 # Mainnet differs from testnet in: real intents.near, native USDC, v1.signer, 1Click's own key, and
 # Hyperliquid mainnet. The agent runs every 10 min (INTERVAL_S=600), so NAV may be up to 15 min old.
 # Margin moves pay a flat ~0.2-0.3 USDC to 1Click, over 3% below ~$10: margin slippage allows 5%.
+# Pulling margin back also pays Hyperliquid a flat 1 USDC (fresh deposit address), which the report
+# check can't explain: dust is 1.5 USDC so that fee can't pause the vault (set_params on 13 Nov).
 INIT=$(cat <<EOF
 {
   "owner": "$OWNER",
@@ -45,7 +47,7 @@ INIT=$(cat <<EOF
     "margin_slippage_bps": 500,
     "hedge_band_bps": 200,
     "max_report_drift_bps": 200,
-    "dust_usdc": "500000",
+    "dust_usdc": "1500000",
     "max_price_age_s": 120,
     "max_nav_age_s": 900,
     "nav_history_interval_s": 1800,

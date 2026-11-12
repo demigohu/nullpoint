@@ -212,7 +212,7 @@ Satu basis kode. Perbedaannya hanya jaringan, alamat verifier (`mock-verifier` |
 - `paused`: deposit/withdraw/swap ditolak. Owner bisa mencabut key trading (`approve_agent` dengan nama sama, alamat baru) dan mengganti agent (`set_agent`).
 - `deposited` per akun: USDC yang disetor dikurangi bagian yang sudah ditarik (pro rata). View `get_holding(account_id)` → `{ shares, deposited, entry_cost }`, dipakai app untuk menampilkan hasil terpisah dari fee deposit.
 - Cap TVL `max_tvl` (mainnet: $100).
-- Parameter mainnet yang beda dari testnet: `max_tvl` $100 (testnet $1.000), `max_swap_usdc` $50 ($100), `margin_slippage_bps` 500 (300; biaya tetap 1Click ~0.3 USDC sudah >3% untuk margin di bawah ~$10), `max_nav_age_s` 900 (600; siklus agent 10 menit), `nav_history_interval_s` 1800 (600). Sama: fee 50/50/500 bps, drift 200, band 200, harga ≤120 dtk.
+- Parameter mainnet yang beda dari testnet: `max_tvl` $100 (testnet $1.000), `max_swap_usdc` $50 ($100), `margin_slippage_bps` 500 (300; biaya tetap 1Click ~0.3 USDC sudah >3% untuk margin di bawah ~$10), `max_nav_age_s` 900 (600; siklus agent 10 menit), `nav_history_interval_s` 1800 (600), `dust_usdc` 1.5 USDC (0.5; biaya $1 Hyperliquid saat tarik margin, G-N). Sama: fee 50/50/500 bps, drift 200, band 200, harga ≤120 dtk.
 
 ### 6.2 Swap dan margin: verifikasi quote lalu tandatangani
 
@@ -383,6 +383,7 @@ Toggle testnet/mainnet di semua halaman (default lewat `NEXT_PUBLIC_DEFAULT_NET`
 | G-K: `sendAsset` dari master yang ditandatangani MPC diterima Hyperliquid (tarik margin) | ✅ 11 Nov di testnet, token `USDC:0xeb62…` (beda dengan mainnet) |
 | G-L: NEAR tidak mengizinkan menghapus akun dengan state besar | ⚠️ Ditemukan 11 Nov → `reinit` dengan prefix storage generasi baru |
 | G-M: `approveAgent` untuk master yang belum punya akun Hyperliquid | ⚠️ Ditolak (`userRole: missing`). Urutan mainnet: deposit → agent kirim margin (tanpa key trading) → approve → short. Agent aman di urutan ini karena hedge lebih dulu: tanpa short, swap spot tidak jalan |
+| G-N: Biaya tarik margin di mainnet | ⚠️ Ditemukan 13 Nov saat withdraw $5 pertama: Hyperliquid memotong **1 USDC tetap** untuk `sendAsset` ke alamat deposit 1Click (alamat baru tiap quote), di luar 0.2 USDC 1Click. Di testnet tidak terlihat karena alamat solver mock selalu sama. Kontrak hanya mencatat jumlah yang dikirim, jadi $1 itu tampil sebagai selisih tak terjelaskan (lolos cek dengan sisa $0.03). Perbaikan: `dust_usdc` mainnet 1.5 USDC (`set_params`), dan agent mainnet hanya menarik margin bila ≥ $20; withdraw kecil dibayar dengan menjual spot (~0.3%) |
 
 Bukti spike (10 Nov, `scripts/spike-chainsig-hl.ts`, master `nullpoint.testnet`/`hl-master` = `0x5e33437E5b871F1Aa9E252Dd00a36C53DFcb9a8D`):
 
@@ -454,6 +455,8 @@ Catatan: leverage default Hyperliquid 20x cross, jadi agent wajib `updateLeverag
 | Deploy + init | `J1ZHrMaEqAbciW8wMxMY61W1bzkg3vLiTeF8qjfVWpbU` |
 | Daftar di kontrak USDC | `7rCYYWxX4h5qftKT86uSoDc5aqx79RtM16pfwdNSehtuP` |
 | Deposit 44 USDC → sweep ke Intents | `G5cmNQxcqLA2sYy4L5xQGV8VjgqxpThbz31TxGfzWjEb` |
+| Tarik margin 5.76 USDC untuk withdraw #0 (biaya Hyperliquid 1 USDC, G-N) | `6yWgxsy7tm2MFh1dmBV5T6JKCNgX8krY88oVQic3pCMK` |
+| `set_params`: `dust_usdc` 1.5 USDC | `HcRCVcpSZo37TSt6ZQ4ZqfAvnKg7WdJP7CdDRkH1YJf1` |
 | Margin 14.77 USDC ke Hyperliquid (`sign_quote`) | `G9ManbtAdVcFvedKdRg4VAbcXueZg9TRfZPFpwDKSwD4` |
 | `approveAgent` lewat MPC | `BWsqw7CcbZ54rQpRhtAxXY85kYuf6NMsQQu3QP7BqsaX` |
 | Short 0.0004 BTC (Hyperliquid oid `603051969380`) lalu beli BTC 29.32 USDC (`sign_quote`) | `6Q4Yuh5NCyGcyGjgPngXxPTUk7cPqUVuiAWDuWygTork` |
