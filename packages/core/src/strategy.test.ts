@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { guardrail, paybackHours, ruleDecision, type Context, type Market } from "./strategy.ts";
+import { guardrail, marginAction, paybackHours, ruleDecision, type Context, type Market } from "./strategy.ts";
 
 const H = 3_600_000;
 const m = (symbol: string, apr: number): Market => ({ symbol, fundingAprNow: apr, fundingApr8h: apr, openInterestUsd: 1e8 });
@@ -35,4 +35,13 @@ test("guardrail blocks what an injected or confused model might ask for", () => 
   assert.match((ok({ action: "ROTATE", target: "NEAR", confidence: 0.2 }) as any).reason, /confidence/);
   // Payback is checked on observed funding even if the model claims a big edge.
   assert.match((guardrail({ action: "ROTATE", target: "NEAR", confidence: 0.9, reasoning: "" }, ctx(), [m("BTC", 10), m("NEAR", 12)]) as any).reason, /payback/);
+});
+
+test("margin rule: top up from idle USDC, else shrink the hedge, else wait", () => {
+  const base = { maintenance: 2, idleUsdc: 0, spotUsd: 0, minTradeUsd: 12 };
+  assert.equal(marginAction({ ...base, accountValue: 10 }), "ok"); // 5x maintenance
+  assert.equal(marginAction({ ...base, accountValue: 5, idleUsdc: 20 }), "top_up"); // 2.5x, cash on hand
+  assert.equal(marginAction({ ...base, accountValue: 5, spotUsd: 40 }), "shrink"); // no cash, sell spot
+  assert.equal(marginAction({ ...base, accountValue: 5, spotUsd: 5 }), "wait"); // too small to trade
+  assert.equal(marginAction({ ...base, maintenance: 0, accountValue: 0 }), "ok"); // no position
 });

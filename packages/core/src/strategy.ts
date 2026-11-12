@@ -108,3 +108,17 @@ export function guardrail(d: Decision, ctx: Context, markets: Market[], LIMITS: 
   if (payback > LIMITS.maxPaybackHours) return no(`payback ${Number.isFinite(payback) ? payback.toFixed(0) + "h" : "never"} > ${LIMITS.maxPaybackHours}h`);
   return { ok: true };
 }
+
+/** Account value under this multiple of Hyperliquid's maintenance margin counts as an emergency. */
+export const MARGIN_LOW_MULTIPLE = 3;
+
+/**
+ * Margin rule (G7): when a fast rally eats the short's margin, top up from idle USDC; with none idle,
+ * shrink the hedge by selling spot (the hedge step then buys back the matching short). USD amounts.
+ */
+export function marginAction(m: { accountValue: number; maintenance: number; idleUsdc: number; spotUsd: number; minTradeUsd: number }): "ok" | "top_up" | "shrink" | "wait" {
+  if (m.maintenance <= 0 || m.accountValue >= MARGIN_LOW_MULTIPLE * m.maintenance) return "ok";
+  if (m.idleUsdc >= 1) return "top_up";
+  if (m.spotUsd >= m.minTradeUsd) return "shrink";
+  return "wait";
+}

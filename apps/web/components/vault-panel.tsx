@@ -26,6 +26,8 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
   const { signedAccountId, signIn, viewFunction } = useNearWallet();
   const [usdc, setUsdc] = useState<bigint | null>(null);
   const [shares, setShares] = useState<bigint | null>(null);
+  /** USDC put in and not yet taken out (the contract's cost basis); null on a contract without it. */
+  const [basis, setBasis] = useState<bigint | null>(null);
   const [chain, setChain] = useState<ChainState | null>(null);
   const [mine, setMine] = useState<Withdrawal[]>([]);
   const [tab, setTab] = useState<"deposit" | "withdraw">("deposit");
@@ -48,6 +50,8 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
     const r = await read();
     setUsdc(r.usdc);
     setShares(r.shares);
+    const h = (await viewFunction({ contractId: net.vault, method: "get_holding", args: { account_id: signedAccountId } }).catch(() => null)) as { deposited: string } | null;
+    setBasis(h ? BigInt(h.deposited) : null);
     setChain(r.state);
     const w = (await viewFunction({ contractId: net.vault, method: "get_withdrawals", args: { from: "0", limit: Math.max(r.state.withdrawal_count, withdrawalCount) + 20 } })) as [number, Omit<Withdrawal, "id">][];
     const own = w.map(([id, x]) => ({ id, ...x })).filter((x) => x.account === signedAccountId).reverse();
@@ -223,6 +227,14 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
         <p className="num mt-3 text-[14px]">
           {shares === null ? "…" : fmt(shares)} <Term k="share">shares</Term> × ${sharePrice.toFixed(4)} · in your wallet: {usdc === null ? "…" : fmt(usdc)} USDC
         </p>
+        {basis !== null && basis > 0n && shares !== null && (() => {
+          const earned = Number(shares) * sharePrice - Number(basis);
+          return (
+            <p className="num mt-2 text-[14px]">
+              You put in ${fmt(basis)} · {earned >= 0 ? "earned" : "down"} <b>${fmt(Math.abs(earned), 6)}</b> ({((earned / Number(basis)) * 100).toFixed(2)}%)
+            </p>
+          );
+        })()}
       </div>
 
       <div className="panel">

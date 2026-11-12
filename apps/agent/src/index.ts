@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import { ExchangeClient, HttpTransport, InfoClient } from "@nktkas/hyperliquid";
 import { privateKeyToAccount } from "viem/accounts";
 import {
-  ASSETS, LIMITS, assetBySymbol, guardrail, mpcToIntentsSignature, ruleDecision,
+  ASSETS, LIMITS, assetBySymbol, guardrail, marginAction, mpcToIntentsSignature, ruleDecision,
   postSignedAction, signedMessage as msg, view, type Context, type Decision, type Market,
 } from "@nullpoint/core";
 import { askStrategist } from "@nullpoint/core/strategist";
@@ -351,14 +351,20 @@ async function cycle() {
     // Margin emergency: account value under 3x maintenance margin means a fast rally is eating the
     // short's margin. Top up from idle USDC, or shrink the position (sell spot; step 4 buys back the short).
     const maintenance = BigInt(Math.round(Number(hl.crossMaintenanceMarginUsed) * 1e6));
-    const marginLow = maintenance > 0n && hlValue < 3n * maintenance;
+    const margin = marginAction({
+      accountValue: Number(hlValue) / 1e6,
+      maintenance: Number(maintenance) / 1e6,
+      idleUsdc: Number(idle) / 1e6,
+      spotUsd: ti >= 0 ? Number(usdValue(ti)) / 1e6 : 0,
+      minTradeUsd: Number(MIN_TRADE_USDC) / 1e6,
+    });
 
     if (paid > 0) {
       // State changed under the numbers above; rebalance next cycle.
-    } else if (marginLow && idle >= 1_000_000n) {
+    } else if (margin === "top_up") {
       const amount = min(idle, cap);
       log(`MARGIN LOW (account ${Number(hlValue) / 1e6} vs maintenance ${Number(maintenance) / 1e6}): sent ${Number(amount) / 1e6} USDC (sign tx ${await moveViaQuote({ originAsset: usdcToken, destinationAsset: hlUsdc, amount: amount.toString(), slippageTolerance: 100, ...side, recipientType: "DESTINATION_CHAIN" })})`);
-    } else if (marginLow && ti >= 0 && usdValue(ti) >= MIN_TRADE_USDC) {
+    } else if (margin === "shrink") {
       const amount = balances[ti + 1]! / 4n;
       log(`MARGIN LOW, no idle USDC: selling a quarter of the ${p.target} spot to shrink the hedge (sign tx ${await moveViaQuote({ originAsset: targetToken, destinationAsset: usdcToken, amount: amount.toString(), ...swapSlip })})`);
     } else if (shortfall > 0n && hlFree >= shortfall + WITHDRAW_PULL_EXTRA_USDC) {

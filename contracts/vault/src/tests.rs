@@ -245,3 +245,23 @@ fn account_value_is_checked_against_the_last_report() {
     let err = v.check_and_value(&hedged, 55_000_000 + gain, &[U128(0), U128(27_000), U128(0)]).unwrap_err();
     assert!(err.contains("account value"), "{err}");
 }
+
+#[test]
+fn cost_basis_follows_deposits_and_withdrawals() {
+    let mut v = vault();
+    ctx(usdc(), 1_000);
+    let _ = v.ft_on_transfer(accounts(2), U128(10_000_000), String::new());
+    v.snapshot = Some(Snapshot { nav: U128(12_000_000), ms: 1_000, usdc_in_verifier: U128(0), spot: vec![] });
+    // Second deposit at a higher share price: basis adds USDC, not shares.
+    let _ = v.ft_on_transfer(accounts(2), U128(6_000_000), String::new());
+    let p = v.get_holding(accounts(2));
+    assert_eq!(p.deposited.0, 16_000_000);
+    assert_eq!(p.shares.0, 15_000_000);
+    // Withdrawing a third of the shares takes a third of the basis with it.
+    ctx(accounts(2), 2_000);
+    let _ = v.request_withdraw(U128(5_000_000));
+    let p = v.get_holding(accounts(2));
+    assert_eq!(p.shares.0, 10_000_000);
+    assert_eq!(p.deposited.0, 10_666_667); // 16 - floor(16 * 5/15)
+    assert_eq!(v.get_holding(accounts(3)).deposited.0, 0);
+}

@@ -40,7 +40,7 @@ Pembeda keamanan: akun Hyperliquid vault dikontrol **kontrak NEAR lewat Chain Si
 
 | ID | Tujuan | Bukti untuk juri |
 |---|---|---|
-| G1 | Kontrak vault: deposit, mint share, request/fulfill withdraw, NAV, pause, cap TVL | Test `near-workspaces` lulus. Tx hash testnet + mainnet |
+| G1 | Kontrak vault: deposit, mint share, request/fulfill withdraw, NAV, pause, cap TVL, modal per akun | Unit test + tes integrasi `near-sandbox` + `near-api` (`contracts/vault/tests/integration.rs`) lulus. Tx hash testnet + mainnet |
 | G2 | Master Hyperliquid = alamat EVM turunan Chain Signatures milik **kontrak vault** | Alamat turunan + tx `approveAgent` yang ditandatangani MPC dari kontrak |
 | G3 | Kaki spot dipegang akun Intents milik vault, dibeli lewat quote 1Click yang diverifikasi kontrak lalu ditandatangani MPC (§6.2) | `mt_balance_of` di `intents.near` + intent hash swap + test kontrak: quote palsu ditolak |
 | G4 | Kaki short di Hyperliquid, leverage ≤2x, ukuran = kaki spot | Posisi terlihat di explorer Hyperliquid ("proof-of-hedge") |
@@ -82,7 +82,7 @@ Pembeda keamanan: akun Hyperliquid vault dikontrol **kontrak NEAR lewat Chain Si
 3. Request withdraw → agent unwind porsinya → share dibakar dan USDC dibayar.
 
 **Owner**
-- Deploy vault, set parameter dan allowlist, `approve_agent` / `revoke_agent`, `pause`.
+- Deploy vault, set parameter dan allowlist, `approve_agent`, `set_agent`, `pause`. Mencabut key trading Hyperliquid: `approve_agent` dengan nama yang sama dan alamat baru (Hyperliquid mengganti agent yang bernama sama). Mengganti akun agent NEAR: `set_agent`.
 
 **Agent (`apps/agent`)**
 - Tiap siklus: baca pasar → hedge → rotasi bila perlu → aturan risiko → laporkan NAV → proses antrean withdraw.
@@ -199,7 +199,8 @@ Satu basis kode. Perbedaannya hanya jaringan, alamat verifier (`mock-verifier` |
 - Withdraw: `request_withdraw(shares)` → agent `fulfill_withdraw` (harga dari NAV, MPC menandatangani `ft_withdraw` ke user) → `execute_withdraw`. Agent menjalankan semuanya otomatis (1–3 menit). `execute_withdraw` tidak punya cek pemanggil, jadi user bisa menyelesaikannya sendiri kalau agent mati.
 - `report_decision` hanya oleh agent: aksi, target, diterima/ditolak, catatan, chat id NEAR AI + alamat penanda tangan TEE.
 - `reinit(generation, …)` (`#[private]`): state baru di akun yang sama dengan prefix storage generasi baru. Dipakai untuk reset testnet, karena NEAR tidak mengizinkan menghapus akun dengan state besar.
-- `paused`: deposit/withdraw/swap ditolak. Owner bisa `revoke_agent`.
+- `paused`: deposit/withdraw/swap ditolak. Owner bisa mencabut key trading (`approve_agent` dengan nama sama, alamat baru) dan mengganti agent (`set_agent`).
+- `deposited` per akun: USDC yang disetor dikurangi bagian yang sudah ditarik (pro rata). View `get_holding(account_id)` → `{ shares, deposited }`, dipakai app untuk menampilkan hasil.
 - Cap TVL `max_tvl` (mainnet: $100).
 
 ### 6.2 Swap dan margin: verifikasi quote lalu tandatangani
@@ -294,17 +295,17 @@ Toggle testnet/mainnet di semua halaman. Versi hosted default ke mainnet. Wallet
 
 **`/app` Vault**: untuk user.
 - Connect wallet. Deposit/withdraw USDC.
-- Posisi user: share, nilai sekarang, yield terkumpul.
+- Posisi user: share, nilai sekarang, modal yang disetor, dan hasil (nilai − modal) dari `get_holding`.
 - Status antrean withdraw.
 - S1: "deposit dari chain apa pun" lewat 1Click (quote → alamat deposit → status REFUNDED/FAILED/SUCCESS).
 
 **`/dashboard`**: untuk user dan juri DeFi.
 - Grafik NAV dan share price (dari `get_nav_history`).
 - Komposisi vault: spot yang dipegang kontrak (link ke saldo NEAR) vs short di Hyperliquid (link ke explorer).
-- **Funding Radar**: funding sesaat dan rata-rata 8 jam untuk BTC/ETH/NEAR, menandai aset aktif dan kandidat rotasi beserta perhitungan payback. SOL/HYPE ditampilkan abu-abu dengan keterangan "belum tersedia sebagai token di NEAR".
+- **Funding Radar**: funding sesaat dan rata-rata 8 jam untuk BTC/ETH/NEAR, menandai aset aktif dan kandidat rotasi beserta perhitungan payback. Hanya tiga aset (BTC, ETH, NEAR); aset yang belum ada sebagai token di NEAR tidak ditampilkan.
 - Aset aktif + alasan, riwayat rotasi, swap Intents terakhir (`get_signed_intents` + intent hash).
-- **Strategist feed:** keputusan LLM terbaru (aksi, confidence, reasoning), status guardrail (lolos/ditolak + alasan), dan perbandingan dengan keputusan aturan pasti.
-- Hedge ratio, leverage, jarak ke likuidasi, status agent, log siklus terakhir.
+- **Strategist feed:** keputusan AI di log aktivitas (aksi, alasan, lolos/ditolak guardrail, chat id, enclave). Panel "The AI vs the backup rule": keputusan AI terakhir vs keputusan aturan pasti dengan funding yang dibaca agent sekarang, dibandingkan dari koin yang dipegang.
+- Hedge ratio (short ÷ koin), leverage di Hyperliquid vs batas 2x, kenaikan harga yang akan melikuidasi short, waktu laporan terakhir.
 
 **Docs → Verify (dulu `/proof`)**: untuk juri dan user skeptis. `/proof` di web dialihkan ke sini.
 - Alamat: kontrak vault, master Hyperliquid (turunan MPC), agent. Masing-masing dengan link explorer.
@@ -337,7 +338,7 @@ Toggle testnet/mainnet di semua halaman. Versi hosted default ke mainnet. Wallet
 
 | ID | Risiko | Mitigasi | Klaim yang jujur |
 |---|---|---|---|
-| R1 | Agent key bocor | Agent tidak bisa withdraw/send. Owner `revoke_agent` via kontrak | Agent **masih bisa merugikan** kaki short lewat trading buruk atau `vaultTransfer`. Kaki spot aman karena dipegang kontrak |
+| R1 | Agent key bocor | Agent tidak bisa withdraw/send. Owner mencabut key lewat kontrak (`approve_agent` nama sama, alamat baru) dan `set_agent` | Agent **masih bisa merugikan** kaki short lewat trading buruk atau `vaultTransfer`. Kaki spot aman karena dipegang kontrak |
 | R2 | Funding negatif lama | Rotasi ke aset lain. Bila semua negatif → `PARKED` | Yield bisa nol |
 | R3 | Agent memalsukan NAV | Spot dan USDC dibaca kontrak dari verifier, harga dari quote 1Click terverifikasi. Nilai akun Hyperliquid dicek per laporan terhadap laporan sebelumnya + margin yang dipindah + efek harga. Pelanggaran → pause | Tidak trustless: agent jahat bisa menggeser nilai akun sampai `max_report_drift_bps` (1%) per laporan. Pergeseran beruntun terlihat di riwayat NAV, dan owner bisa pause |
 | R10 | LLM strategist kena prompt injection atau berhalusinasi | Skema output tertutup, guardrail pasti, batas kontrak, fallback aturan pasti | LLM bisa membuat keputusan buruk **di dalam** pagar (mis. rotasi yang tidak menguntungkan), dibatasi maks 2 rotasi/hari |
@@ -405,8 +406,8 @@ Catatan: leverage default Hyperliquid 20x cross, jadi agent wajib `updateLeverag
 | Hari | Fase | Status |
 |---|---|---|
 | Sen 10 Nov | Riset + spike gate A–J | ✅ |
-| Sel 11 Nov | Testnet: kontrak + mock + core, agent (alokasi, rotasi, PARK, withdraw batch, strategist LLM), frontend 4 halaman, demo/attack/simulate, keandalan agent (near-kit, key terbatas, jurnal, lock, hedge lebih dulu) | ✅ kecuali regresi PARK → RESUME yang tertunda karena Hyperliquid testnet macet |
-| Rab 12 Nov | Redesign frontend. Migrasi mainnet: jalur 1Click asli di agent (`submit-intent` + polling status), deploy kontrak (cap $100), key agent mainnet, approve agent, deposit $60 | |
+| Sel 11 Nov | Testnet: kontrak + mock + core, agent (alokasi, rotasi, PARK, withdraw batch, strategist LLM), frontend 4 halaman, demo/attack/simulate, keandalan agent (near-kit, key terbatas, jurnal, lock, hedge lebih dulu) | ✅ (regresi PARK → RESUME lulus 11 Nov) |
+| Rab 12 Nov | ✅ Redesign frontend, rename keeper → agent, dialog transaksi, dashboard interaktif, modal per akun, tes integrasi sandbox, `npm test` di root. Belum: Migrasi mainnet: jalur 1Click asli di agent (`submit-intent` + polling status), deploy kontrak (cap $100), key agent mainnet, approve agent, deposit $60 | |
 | Kam 13 Nov | Agent mainnet di VPS (pm2), hosting web, monitoring, README | |
 | Jum 14 Nov | Video, post X, uji di clone bersih, submit | |
 

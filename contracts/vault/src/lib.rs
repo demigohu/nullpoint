@@ -30,6 +30,7 @@ enum Key {
     Signed(u8),
     Decisions(u8),
     NavHistory(u8),
+    Deposited(u8),
 }
 
 #[near(serializers = [json, borsh])]
@@ -111,6 +112,12 @@ pub struct Withdrawal {
     pub signed_id: Option<u64>,
 }
 
+#[near(serializers = [json])]
+pub struct Holding {
+    pub shares: U128,
+    pub deposited: U128,
+}
+
 #[near(serializers = [json, borsh])]
 #[derive(Clone)]
 pub struct Signed {
@@ -185,6 +192,9 @@ pub struct Contract {
     assets: Vec<Asset>,
     paused: bool,
     shares: LookupMap<AccountId, u128>,
+    /// USDC each account has put in and not yet taken out (pro rata on withdrawals): its cost basis,
+    /// so the app can show what the shares earned.
+    deposited: LookupMap<AccountId, u128>,
     total_shares: u128,
     /// Deposited USDC still on this contract, not yet swept into the Intents account.
     pending_usdc: u128,
@@ -243,6 +253,7 @@ impl Contract {
                 .collect(),
             paused: false,
             shares: LookupMap::new(Key::Shares(g)),
+            deposited: LookupMap::new(Key::Deposited(g)),
             total_shares: 0,
             pending_usdc: 0,
             owed_usdc: 0,
@@ -330,6 +341,8 @@ impl Contract {
             s.nav = U128(nav_after);
         }
         let balance = self.shares.get(&sender_id).copied().unwrap_or(0);
+        let basis = self.deposited.get(&sender_id).copied().unwrap_or(0);
+        self.deposited.insert(sender_id.clone(), basis + amount);
         self.shares.insert(sender_id, balance + shares);
         self.total_shares += shares;
         self.pending_usdc += amount;
@@ -530,6 +543,8 @@ impl Contract {
         let account = env::predecessor_account_id();
         let balance = self.shares.get(&account).copied().unwrap_or(0);
         require!(shares.0 > 0 && shares.0 <= balance, "not enough shares");
+        let basis = self.deposited.get(&account).copied().unwrap_or(0);
+        self.deposited.insert(account.clone(), basis - basis * shares.0 / balance);
         self.shares.insert(account.clone(), balance - shares.0);
         self.withdrawals.push(Withdrawal { account, shares, usdc: U128(0), status: "queued".into(), signed_id: None });
         self.withdrawals.len() as u64 - 1
@@ -628,6 +643,14 @@ impl Contract {
 
     pub fn get_shares(&self, account_id: AccountId) -> U128 {
         U128(self.shares.get(&account_id).copied().unwrap_or(0))
+    }
+
+    /// Shares and cost basis (USDC put in, minus the share of it already withdrawn).
+    pub fn get_holding(&self, account_id: AccountId) -> Holding {
+        Holding {
+            shares: U128(self.shares.get(&account_id).copied().unwrap_or(0)),
+            deposited: U128(self.deposited.get(&account_id).copied().unwrap_or(0)),
+        }
     }
 
     pub fn get_signed(&self, from: U64, limit: u32) -> Vec<(u64, Signed)> {

@@ -7,6 +7,7 @@
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types",
+    "test": "npm test -w @nullpoint/core && node --test apps/web/components/field/field.test.ts && cd contracts && cargo test",
     "demo": "npm run demo -w @nullpoint/scripts --silent",
     "attack": "npm run attack -w @nullpoint/scripts --silent",
     "attack:llm": "npm run attack:llm -w @nullpoint/scripts --silent",

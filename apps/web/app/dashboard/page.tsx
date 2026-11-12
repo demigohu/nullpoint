@@ -1,4 +1,4 @@
-import { paybackHours } from "@nullpoint/core";
+import { LIMITS, guardrail, paybackHours, ruleDecision, type Context } from "@nullpoint/core";
 import { ActivityFeed } from "@/components/activity-feed";
 import { FieldCanvas } from "@/components/field/field-canvas";
 import { LineChart } from "@/components/line-chart";
@@ -20,7 +20,12 @@ const MOVES: Record<string, (t: string | null) => string> = { ROTATE: (t) => `Sw
 
 export default async function Dashboard() {
   const net = await currentNet();
-  const [ov, radar] = await Promise.all([vaultOverview(net).catch(() => null), fundingRadar("mainnet").catch(() => [])]);
+  const [ov, radar, seen] = await Promise.all([
+    vaultOverview(net).catch(() => null),
+    fundingRadar("mainnet").catch(() => []),
+    // The funding the agent itself acts on (testnet agent reads Hyperliquid testnet).
+    fundingRadar(net.hlChain).catch(() => []),
+  ]);
   if (!ov) {
     return (
       <main className="p-[var(--pad)] pt-28">
@@ -34,7 +39,31 @@ export default async function Dashboard() {
   const active = hedge.symbol;
   const activeRate = radar.find((r) => r.symbol === active)?.apr8h ?? 0;
   const tvl = Number(state.snapshot?.nav ?? 0) / 1e6;
-  const shorts: { coin: string; szi: string; entryPx: string }[] = hl?.assetPositions?.map((p: { position: never }) => p.position) ?? [];
+  const shorts: { coin: string; szi: string; entryPx: string; positionValue: string; liquidationPx: string | null }[] = hl?.assetPositions?.map((p: { position: never }) => p.position) ?? [];
+  const main = shorts.slice().sort((a, b) => Number(b.positionValue) - Number(a.positionValue))[0];
+  const accountValue = Number(hl?.marginSummary?.accountValue ?? 0);
+  const shortUsd = shorts.reduce((t, p) => t + Number(p.positionValue), 0);
+  const spotUsd = spot.reduce((t, x) => t + x.usd, 0);
+  const leverage = accountValue > 0 ? shortUsd / accountValue : 0;
+  const mainMark = main ? Number(main.positionValue) / Math.abs(Number(main.szi)) : 0;
+  const toLiq = main?.liquidationPx ? (Number(main.liquidationPx) / mainMark - 1) * 100 : null;
+
+  // AI vs the backup rule, on the funding the agent sees right now.
+  const moves = decisions.filter((d) => d.accepted && ["ROTATE", "RESUME", "PARK"].includes(d.action));
+  const ctx: Context = {
+    active: hedge.mode === "park" ? null : (moves.at(-1)?.target ?? "BTC"),
+    heldSinceMs: moves.at(-1)?.ms ?? 0,
+    nowMs: Date.now(),
+    rotationsLast24h: moves.filter((d) => d.action === "ROTATE" && Date.now() - d.ms < 86_400_000).length,
+    rotationCostBps: 40,
+    allowlist: ["BTC", "ETH", "NEAR"],
+  };
+  const rule = seen.length ? ruleDecision(ctx, seen.map((r) => ({ symbol: r.symbol, fundingAprNow: r.aprNow, fundingApr8h: r.apr8h, openInterestUsd: r.oiUsd }))) : null;
+  const ruleOk = rule ? guardrail(rule, ctx, seen.map((r) => ({ symbol: r.symbol, fundingAprNow: r.aprNow, fundingApr8h: r.apr8h, openInterestUsd: r.oiUsd }))).ok : false;
+  const lastAi = decisions.filter((d) => d.source === "llm").at(-1);
+  const said = (a: string, t: string | null) => `${a}${t ? ` ${t}` : ""}`;
+  // Where each answer leaves the vault: HOLD keeps the current coin, PARK means USDC.
+  const holding = (a: string, t: string | null | undefined, cur: string | null) => (a === "PARK" ? "USDC" : a === "ROTATE" || a === "RESUME" ? (t ?? cur) : cur ?? "USDC");
   const feed = [...signed.map((s) => describeSigned(s, state.config.usdc_token_id)), ...decisions.map(describeDecision)].sort((a, b) => b.ms - a.ms);
   const markers = decisions.filter((d) => d.accepted && d.action in MOVES).map((d) => ({ x: d.ms, label: MOVES[d.action]!(d.target) }));
   const firstPrice = nav.length ? Number(nav[0]!.nav) / Number(nav[0]!.total_shares) : ov.sharePrice;
@@ -71,7 +100,7 @@ export default async function Dashboard() {
       </section>
 
       <section className="grid gap-[var(--pad)] lg:grid-cols-12">
-        <div className="panel p-[var(--pad)] lg:col-span-8">
+        <div className="panel p-[var(--pad)] lg:col-span-8 lg:self-start">
           <h2 className={H2}>
             <Term k="share price">Share price</Term> over time
           </h2>
@@ -100,6 +129,15 @@ export default async function Dashboard() {
               <div className="flex justify-between gap-3"><dt>Collateral on Hyperliquid</dt><dd>{money(Number(state.account_value) / 1e6)}</dd></div>
               <div className="flex justify-between gap-3"><dt>Idle USDC in the vault</dt><dd>{money(Number(state.snapshot?.usdc_in_verifier ?? 0) / 1e6)}</dd></div>
             </dl>
+            <dl className="num mt-4 grid gap-2 border-t border-tc pt-3 text-[13px]">
+              <div className="flex justify-between gap-3"><dt>Hedge ratio (short ÷ coin)</dt><dd>{spotUsd > 0 ? `${((shortUsd / spotUsd) * 100).toFixed(1)}%` : "-"}</dd></div>
+              <div className="flex justify-between gap-3"><dt>Leverage on Hyperliquid</dt><dd>{leverage ? `${leverage.toFixed(2)}x (limit ${LIMITS.maxLeverage}x)` : "-"}</dd></div>
+              <div className="flex justify-between gap-3">
+                <dt>{main ? `${main.coin} rise that would liquidate` : "Liquidation"}</dt>
+                <dd>{toLiq === null ? "-" : `+${toLiq.toFixed(0)}%`}</dd>
+              </div>
+            </dl>
+            <p className="mt-2 text-[12px] leading-[1.4]">The agent adds collateral if the account falls below 3x the margin Hyperliquid requires, long before liquidation.</p>
           </div>
 
           <div className="panel p-[var(--pad)]">
@@ -128,6 +166,28 @@ export default async function Dashboard() {
             <p className="mt-3 text-[12px] leading-[1.4]">
               Payback is how many hours of extra funding it takes to earn back the 0.4% cost of switching. The agent only switches when that is 168 hours (7 days) or less.
             </p>
+          </div>
+
+          <div className="panel p-[var(--pad)]">
+            <h2 className="chip">The AI vs the backup rule</h2>
+            <dl className="mt-3 grid gap-3 text-[14px] leading-[1.45]">
+              <div>
+                <dt className="font-mono text-[11px] uppercase tracking-[0.15em]">Latest AI decision</dt>
+                <dd>{lastAi ? <><b>{said(lastAi.action, lastAi.target)}</b> {ago(lastAi.ms)}, {lastAi.accepted ? "allowed" : "blocked"} by the limits</> : "None yet"}</dd>
+              </div>
+              <div>
+                <dt className="font-mono text-[11px] uppercase tracking-[0.15em]">The rule, on today&apos;s funding</dt>
+                <dd>{rule ? <><b>{said(rule.action, rule.target ?? null)}</b>: {rule.reasoning}{ruleOk ? "" : " (the limits would block it now)"}</> : "No funding data"}</dd>
+              </div>
+            </dl>
+            {lastAi && rule && (
+              <p className="mt-3 border-t border-tc pt-3 text-[13px]">
+                {holding(lastAi.action, lastAi.target, ctx.active) === holding(rule.action, rule.target, ctx.active)
+                  ? `They agree: hold ${holding(rule.action, rule.target, ctx.active)}.`
+                  : `They differ: the AI chose ${holding(lastAi.action, lastAi.target, ctx.active)}, the rule would pick ${holding(rule.action, rule.target, ctx.active)}. The AI weighs more than the rule (how long a spike lasts, market size); both answer to the same limits.`}
+              </p>
+            )}
+            <p className="mt-2 text-[12px] leading-[1.4]">The rule takes over whenever the AI is unavailable. Funding here is what the agent reads: Hyperliquid {net.hlChain}.</p>
           </div>
         </div>
       </section>
