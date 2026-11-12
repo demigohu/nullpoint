@@ -372,7 +372,8 @@ async function cycle() {
     const margin = marginAction({
       accountValue: Number(hlValue) / 1e6,
       maintenance: Number(maintenance) / 1e6,
-      idleUsdc: Number(idle) / 1e6,
+      // Idle USDC too small to send as margin (1Click's flat fee) can't top up; shrink the position instead.
+      idleUsdc: idle >= MARGIN_SEND_MIN_USDC ? Number(idle) / 1e6 : 0,
       spotUsd: ti >= 0 ? Number(usdValue(ti)) / 1e6 : 0,
       minTradeUsd: Number(MIN_TRADE_USDC) / 1e6,
     });
@@ -404,8 +405,11 @@ async function cycle() {
       const usd = value <= cap ? value : value - cap >= STRAY_MIN_USDC ? cap : value - STRAY_MIN_USDC;
       const amount = usd === value ? balances[stray + 1]! : (balances[stray + 1]! * usd) / value;
       log(`moved ${ASSETS[stray]!.symbol} -> ${p.target ?? "USDC"} (sign tx ${await moveViaQuote({ originAsset: ASSETS[stray]!.tokenId, destinationAsset: targetToken, amount: amount.toString(), ...swapSlip })})`);
-    } else if (hlValue + MARGIN_TOL_USDC < marginTarget && min(idle, marginTarget - hlValue) >= MARGIN_SEND_MIN_USDC) {
-      const amount = min(min(idle, marginTarget - hlValue), cap);
+    } else if (hlValue + MARGIN_TOL_USDC < marginTarget && idle >= MARGIN_SEND_MIN_USDC) {
+      // A gap under the send minimum is still sent as the minimum: a little extra margin beats leaving
+      // the short over-leveraged.
+      const gap = marginTarget - hlValue;
+      const amount = min(min(idle, gap > MARGIN_SEND_MIN_USDC ? gap : MARGIN_SEND_MIN_USDC), cap);
       log(`sent ${Number(amount) / 1e6} USDC margin to Hyperliquid (sign tx ${await moveViaQuote({ originAsset: usdcToken, destinationAsset: hlUsdc, amount: amount.toString(), slippageTolerance: 100, ...side, recipientType: "DESTINATION_CHAIN" })})`);
     } else if (ti >= 0 && usdValue(ti) + MIN_TRADE_USDC < spotTarget && idle >= MIN_TRADE_USDC) {
       const amount = min(min(idle, spotTarget - usdValue(ti)), cap);
