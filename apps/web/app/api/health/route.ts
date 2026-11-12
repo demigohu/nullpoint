@@ -1,4 +1,4 @@
-// For Uptime Kuma: 200 when every critical check passes, 503 otherwise (Kuma marks it down and emails).
+// For Uptime Kuma: 200 when every critical check passes, 503 otherwise (Kuma marks it down and alerts the owner).
 // ?network=mainnet|testnet checks one network, so each vault is its own monitor.
 import type { NextRequest } from "next/server";
 import { NETS } from "@/lib/config";

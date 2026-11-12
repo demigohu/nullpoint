@@ -1,11 +1,11 @@
 // Health of each network's vault, read from the chain and Hyperliquid on every request, for /api/health.
-// Uptime Kuma polls that endpoint, keeps the history and emails on 503 (status.nullpoint.fun).
+// Uptime Kuma polls that endpoint, keeps the history and alerts on 503 (status.nullpoint.fun).
 import { ASSETS, hlInfo, rpc, view } from "@nullpoint/core";
 import { NETS } from "@/lib/config";
 
 export type NetName = keyof typeof NETS;
 
-/** `critical` checks failing make /api/health answer 503, which is what the uptime monitor emails about. */
+/** `critical` checks failing make /api/health answer 503, which is what the uptime monitor alerts on. */
 export type Check = { name: string; ok: boolean; critical: boolean; detail: string };
 
 type State = {

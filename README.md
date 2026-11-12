@@ -97,7 +97,7 @@ All times UTC.
 | **AI decisions on the record** | Each decision is stored on-chain with the model's chat id and the enclave's signing address, accepted or not | **Testnet**, 12 Nov: staging that switch, the AI refused to move into NEAR because its open interest was only about $168k; the fixed rule switched. Both are in `get_decisions` |
 | **The agent can't steal** | Its NEAR key can only call the vault; its Hyperliquid key can only trade | `npm run attack`: `withdraw3`, `usdSend`, `agentSendAsset` and a quote paying an attacker are all refused |
 | **Crash recovery** | Every fund move is journaled and finished after a restart | **Testnet**, 12 Nov: `resumed move to 42b26344ce…` on the first run after a restart |
-| **Monitoring** | `/api/health` checks both vaults (paused, reporting, hedge, agent gas, key expiry) and answers 503 when something is wrong; Uptime Kuma emails the owner | https://status.nullpoint.fun |
+| **Monitoring** | `/api/health` checks both vaults (paused, reporting, hedge, agent gas, key expiry) and answers 503 when something is wrong; Uptime Kuma alerts the owner | https://status.nullpoint.fun |
 | **Verified source** | Reproducible builds (NEP-330, Docker) | NearBlocks shows both vault contracts as verified |
 
 The full mainnet transaction list, step by step: [docs → Mainnet proof](apps/docs/content/docs/mainnet.mdx).

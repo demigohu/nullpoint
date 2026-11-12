@@ -14,7 +14,7 @@ description: One NEAR contract holds the rules and the keys. One agent does the 
   end
   subgraph vps[Agent host, a VPS]
     agent[Agent, apps/agent<br/>Node, one process per network]
-    kuma[Uptime Kuma<br/>status page and email alerts]
+    kuma[Uptime Kuma<br/>status page and alerts]
   end
   subgraph near[NEAR]
     vault[Vault contract, contracts/vault<br/>Rust, near-sdk]
