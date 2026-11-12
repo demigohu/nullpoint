@@ -570,7 +570,10 @@ impl Contract {
             require!(amount_in <= self.params.max_swap_usdc.0, "amount over max_swap_usdc");
             let usdc_out = min_out / 100;
             require!(usdc_out >= amount_in - bps(amount_in, self.params.margin_slippage_bps), "minAmountOut too low");
-            self.margin_net += usdc_out as i128;
+            // Record what the quote says will arrive, not its floor: solvers deliver about amountOut, and
+            // the floor sits a full slippage tolerance below it, which the report check would read as a
+            // gain nobody explained.
+            self.margin_net += (q.amount_out() / 100) as i128;
         } else {
             // Spot swap or rotation inside the Intents account.
             require!(q.recipient_type == "INTENTS", "swap output must stay in Intents");
