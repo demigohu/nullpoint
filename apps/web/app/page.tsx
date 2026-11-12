@@ -59,7 +59,7 @@ const title = "wdth-118 text-[clamp(2.2rem,4.6vw,5.4rem)] font-extrabold leading
 
 export default async function Landing() {
   const net = await currentNet();
-  const [bt, ov, radar] = await Promise.all([hedgeBacktest(30), vaultOverview(net).catch(() => null), fundingRadar("mainnet").catch(() => [])]);
+  const [bt, ov, radar] = await Promise.all([hedgeBacktest(30), vaultOverview(net).catch(() => null), fundingRadar(net.hlChain).catch(() => [])]);
   const longShare = ov?.hedge.longShare ?? 0.5;
   const hedgedYear = ((bt.at(-1)!.hedged - bt[0]!.hedged) / bt[0]!.hedged) * 100 * (365 / 30);
 

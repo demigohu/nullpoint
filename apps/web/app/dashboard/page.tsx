@@ -20,12 +20,8 @@ const MOVES: Record<string, (t: string | null) => string> = { ROTATE: (t) => `Sw
 
 export default async function Dashboard() {
   const net = await currentNet();
-  const [ov, radar, seen] = await Promise.all([
-    vaultOverview(net).catch(() => null),
-    fundingRadar("mainnet").catch(() => []),
-    // The funding the agent itself acts on (testnet agent reads Hyperliquid testnet).
-    fundingRadar(net.hlChain).catch(() => []),
-  ]);
+  // The funding the agent itself acts on: Hyperliquid testnet on testnet, mainnet on mainnet.
+  const [ov, radar] = await Promise.all([vaultOverview(net).catch(() => null), fundingRadar(net.hlChain).catch(() => [])]);
   if (!ov) {
     return (
       <main className="p-[var(--pad)] pt-28">
@@ -58,8 +54,8 @@ export default async function Dashboard() {
     rotationCostBps: 40,
     allowlist: ["BTC", "ETH", "NEAR"],
   };
-  const rule = seen.length ? ruleDecision(ctx, seen.map((r) => ({ symbol: r.symbol, fundingAprNow: r.aprNow, fundingApr8h: r.apr8h, openInterestUsd: r.oiUsd }))) : null;
-  const ruleOk = rule ? guardrail(rule, ctx, seen.map((r) => ({ symbol: r.symbol, fundingAprNow: r.aprNow, fundingApr8h: r.apr8h, openInterestUsd: r.oiUsd }))).ok : false;
+  const rule = radar.length ? ruleDecision(ctx, radar.map((r) => ({ symbol: r.symbol, fundingAprNow: r.aprNow, fundingApr8h: r.apr8h, openInterestUsd: r.oiUsd }))) : null;
+  const ruleOk = rule ? guardrail(rule, ctx, radar.map((r) => ({ symbol: r.symbol, fundingAprNow: r.aprNow, fundingApr8h: r.apr8h, openInterestUsd: r.oiUsd }))).ok : false;
   const lastAi = decisions.filter((d) => d.source === "llm").at(-1);
   const said = (a: string, t: string | null) => `${a}${t ? ` ${t}` : ""}`;
   // Where each answer leaves the vault: HOLD keeps the current coin, PARK means USDC.
@@ -171,7 +167,7 @@ export default async function Dashboard() {
             <h2 className={H2}>
               What each coin pays (<Term k="funding">funding</Term>)
             </h2>
-            <p className="mt-1 text-[13px]">Live from Hyperliquid mainnet, as a yearly rate. Positive means the short gets paid.</p>
+            <p className="mt-1 text-[13px]">Live from Hyperliquid {net.hlChain}, as a yearly rate. Positive means the short gets paid.</p>
             <ul className="mt-4 grid grid-cols-3 gap-2">
               {radar.map((r) => {
                 const m = modeOf(r.symbol);
