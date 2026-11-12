@@ -1,0 +1,72 @@
+---
+title: Security model
+description: Who holds which key, what each one can and can't do, and what can still go wrong. The short version is that the agent can trade badly, but it can't take the money.
+---
+
+## Keys and what they can reach
+
+<Mermaid
+  title="Key and trust boundaries"
+  chart={`flowchart TB
+  subgraph contractzone[Only the contract can ask]
+    vault[Vault contract]
+    mpc[NEAR Chain Signatures<br/>key path hl-master]
+    vault -- builds payload, asks --> mpc
+  end
+  mpc -- signs --> ia[(Intents account<br/>coin + idle USDC)]
+  mpc -- signs admin actions --> hm[(Hyperliquid master<br/>approveAgent, sendAsset)]
+  subgraph agentzone[Agent host]
+    nk[NEAR function-call key<br/>vault methods only]
+    tk[Hyperliquid trading key<br/>orders only]
+  end
+  nk -- report_*, sign_quote,<br/>fulfill_withdraw --> vault
+  tk -- place and cancel orders --> hm
+  tk -. withdraw, send: refused .-> hm
+  owner[Owner nullpoint.near<br/>full-access key, kept off the agent host] -- pause, limits,<br/>set agent, approve key --> vault
+  user[Any user] -- deposit, request and<br/>execute own withdrawal --> vault`}
+/>
+
+## Who can do what
+
+| Party | Can | Can't |
+|---|---|---|
+| Agent | Place and cancel orders on Hyperliquid; bring 1Click quotes for the contract to check; report prices, positions and decisions; ask for a payout to sign | Withdraw from Hyperliquid or send to another account; sign anything for the vault itself; steer a swap to anyone but a 1Click quote paying the vault; move the reported value by more than the drift check; call any other contract; send NEAR |
+| AI model | Propose hold, switch, park, resume, or a leverage change | Pick a coin outside BTC, ETH, NEAR; exceed 2x; switch more than twice a day; express any action that moves funds |
+| Owner | Pause; change limits (fees only up to their caps); replace the agent; replace the trading key; correct the collateral record; in this hackathon build, upgrade the contract | Call a method that pays the owner. There is none |
+| Anyone | Deposit; withdraw their own shares; submit a payout the contract already signed | Redirect a signed payout. It names its receiver |
+| 1Click | Fill quotes it signed | Fill a transfer the contract didn't sign; quotes that don't pay the vault are refused before signing |
+
+## What the contract signs, and nothing else
+
+The contract builds every payload from structured parameters. It never signs bytes the agent hands it.
+
+| Payload | Standard | Built from |
+|---|---|---|
+| Intents transfer | ERC-191, for `intents.near` | A verified 1Click quote: one transfer of the quoted amount to the quoted deposit address |
+| Intents withdrawal | ERC-191 | A queued withdrawal: USDC to the account that asked |
+| Hyperliquid `sendAsset` | EIP-712 | A verified 1Click quote back to the vault: to the quoted deposit address |
+| Hyperliquid `approveAgent` | EIP-712 | The owner's request: a trading key by address and name |
+
+## Built to fail safe
+
+- **Short first.** A swap never runs without its matching short.
+- **No report when off-hedge.** The agent fixes the hedge instead. Deposits wait on a stale price rather than mint at a wrong one.
+- **The contract pauses** on a report it can't explain.
+- **Withdrawals don't depend on us.** Anyone can submit a signed payout.
+- **Crash recovery.** Every fund move is journaled and finished after a restart.
+- **Small mainnet cap.** $100 while the contract is unaudited.
+
+## What can still go wrong
+
+| Risk | Honest limit |
+|---|---|
+| Agent key stolen | It can trade the short badly, or move Hyperliquid funds between the vault's own sub-accounts. The coin is safe in the contract's Intents account. The owner can replace the key and the agent |
+| Reported value | Not trustless: a dishonest agent could shift the Hyperliquid value by up to 2% per report. Repeated shifts show in the share-price history, and the owner can pause |
+| Venue and bridges | The vault inherits Hyperliquid's risk and the bridges behind nBTC and ETH |
+| 1Click | The vault trusts it to fill quotes it signs. Unfilled quotes are refunded to the vault |
+| Upgrades | The owner can upgrade the contract in this build. A production version would put upgrades behind a multisig or DAO, or remove them |
+| Liquidation | A fast enough rally can still liquidate a 2x short before more collateral arrives |
+
+## Contract verification
+
+Both vault contracts are built reproducibly (NEP-330, Docker image `sourcescan/cargo-near`) and verified on NearBlocks: anyone can rebuild the published commit and get the same code hash as the deployed contract. [Deploy](/deploy) shows how.

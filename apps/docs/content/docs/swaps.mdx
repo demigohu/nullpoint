@@ -1,0 +1,66 @@
+---
+title: "Swaps: verify, then sign"
+description: How the agent can ask for a swap without being able to steer the money. This is the core of the security design.
+---
+
+## The problem
+
+The agent decides when to swap, so it has to ask for swaps. If it could hand the contract any transaction to sign, a stolen agent key could sign a "swap" that pays an attacker.
+
+## The answer
+
+The agent brings a **quote from 1Click**, and 1Click signs every quote with its ed25519 key (`ed25519:reYaWhvwu8Jzo3WUM3zhn6VrhuMEF4eADL17qtRVifc`). The signature covers who gets paid, where refunds go, the deposit address, the amounts and the deadline. So the contract can prove that a deposit address belongs to 1Click and is tied to a quote that pays the vault. Only then does it build the transfer itself and ask NEAR's signers to sign it.
+
+<Mermaid
+  title="sign_quote, step by step"
+  chart={`sequenceDiagram
+  autonumber
+  participant A as Agent
+  participant C as 1Click API
+  participant V as Vault contract
+  participant M as NEAR Chain Signatures
+  participant I as intents.near
+  A->>C: POST /v0/quote (recipient = vault, refund = vault)
+  C-->>A: quote + depositAddress + ed25519 signature
+  A->>V: sign_quote(message, signature)
+  V->>V: verify 1Click signature
+  V->>V: recipient and refund = vault, assets allowlisted
+  V->>V: price vs oracle, amount under the cap, fresh, never used
+  V->>V: build one transfer to depositAddress
+  V->>M: sign(payload digest, path hl-master)
+  M-->>V: signature, stored on-chain
+  A->>C: POST /v0/submit-intent (signed transfer)
+  C->>I: execute the intent
+  I-->>I: vault pays depositAddress
+  C-->>I: solver delivers the other token to the vault
+  A->>C: GET /v0/status until SUCCESS or REFUNDED`}
+/>
+
+## What the contract checks
+
+1. **1Click's signature** over `base58(sha256(message))`, against the public key stored in the contract.
+2. **Recipient and refund address** are both the vault's own address, and the deposit and refund types are Intents (or the vault's Hyperliquid account for collateral).
+3. **Assets:** origin and destination are in the allowlist (BTC, ETH, NEAR, USDC, Hyperliquid USDC) and differ.
+4. **Size:** the amount is under `max_swap_usdc` ($100 testnet, $50 mainnet).
+5. **Price:** for coin swaps, the minimum output is within `max_slippage_bps` (1.5%) of the contract's own price. For collateral transfers, within `margin_slippage_bps` (3% testnet, 5% mainnet).
+6. **Freshness and replay:** the quote is less than 2 minutes old, its deadline is in the future, and its hash has never been used.
+
+Then it builds the payload itself: one Intents `transfer` of exactly the quoted amount to the quoted deposit address, with a deadline no later than the quote's and a fresh nonce. The agent never hands it bytes to sign.
+
+## Collateral back from Hyperliquid
+
+Same idea, other direction. The quote's origin is Hyperliquid USDC and its recipient is the vault. The contract builds a Hyperliquid `sendAsset` (EIP-712) to the quote's deposit address and asks NEAR's signers to sign it. The agent posts that to Hyperliquid.
+
+## What a stolen agent key could still do
+
+- **Pick the worst quote that still passes the price check.** Each swap could lose up to the slippage limit (1.5%).
+- **Not submit a signed intent.** Nothing moves, nothing is lost; the next run tries again.
+- **Trade the short badly** on Hyperliquid (see [Security model](/security)).
+
+What it can't do: send the vault's money anywhere except a 1Click deposit address bound to a quote that pays the vault, change who receives a swap, or reuse an old quote.
+
+The remaining trust is in 1Click as a venue: it has to fill the quotes it signs. If a quote isn't filled, 1Click refunds the vault's Intents account.
+
+## Prices come from the same quotes
+
+The contract also needs prices to value the coin. Each run the agent posts small 1Click quotes (about $1 of each coin into USDC) with `report_prices`. The contract checks the signature and age (at most 120 seconds) and stores `amountOut ÷ amountIn` as the price. Quotes already include 1Click's fee, so the vault is valued a little conservatively.

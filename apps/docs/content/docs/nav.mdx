@@ -1,0 +1,81 @@
+---
+title: NAV and the share price
+description: The contract values the vault itself, checks what the agent reports, and stops the vault when the numbers don't add up.
+---
+
+## What the vault is worth
+
+**NAV** (net asset value) is everything the vault owns minus what it owes. **Share price** = NAV ÷ all shares. Deposits and withdrawals are priced off it, so it has to be hard to fake.
+
+<Mermaid
+  title="How the contract computes NAV"
+  chart={`flowchart TB
+  q[1Click quotes, signed<br/>report_prices] --> px[Stored price per coin<br/>at most 120 s old]
+  bal[Balances read on-chain<br/>intents.near mt_batch_balance_of] --> spot[Coin value = balance x price]
+  bal --> usd[Idle USDC]
+  px --> spot
+  rep[Agent's report<br/>Hyperliquid account value, short sizes] --> chk{Check against the<br/>last accepted report}
+  last[Last report + collateral moved since<br/>+ price change on the open short] --> chk
+  chk -- within 2% plus dust --> hlv[Hyperliquid value accepted]
+  chk -- outside --> pause[Vault pauses<br/>owner investigates]
+  spot --> hedge{Short equals coin<br/>within 2%?}
+  hedge -- no --> pause
+  hedge -- yes --> nav
+  usd --> nav[NAV = idle USDC + coin value<br/>+ Hyperliquid value - amounts owed]
+  hlv --> nav
+  nav --> sp[Share price = NAV / shares<br/>recorded on a schedule]
+  stale{Any price older<br/>than 120 s?} -. yes: report dropped, old NAV kept .-> rep`}
+/>
+
+| Part | Source | Can the agent fake it? |
+|---|---|---|
+| Idle USDC | Read by the contract from `intents.near` | No |
+| Coin held | Balance read by the contract from `intents.near` | No |
+| Coin price | 1Click quotes verified by the contract | Only by choosing among real quotes; they carry 1Click's fee, so the error leans low |
+| Hyperliquid account | Reported by the agent | Within the drift check below |
+
+## The report check
+
+The contract can't read Hyperliquid, so the agent reports the account value and the shorts. The contract compares that with what it expects:
+
+**expected = last accepted value + collateral moved since + change in value of the open short from the price moves**
+
+A report is accepted when it's within `max_report_drift_bps` (2%) of the largest of the short's value, the old value and the expected value, plus a dust allowance (0.5 USDC testnet, 1.5 USDC mainnet). Collateral sent to Hyperliquid counts at the amount 1Click quoted to deliver.
+
+If the gap is bigger, the contract **pauses the vault**: no deposits, withdrawals or swaps until the owner investigates. Funding and price moves fit inside the check; a stolen key reporting a made-up number doesn't.
+
+A report built on a price older than 120 seconds is simply **dropped**, not treated as a violation. The old NAV stays, and the agent reports again next run.
+
+## Vault states
+
+<Mermaid
+  title="Vault, withdrawal and strategy states"
+  chart={`stateDiagram-v2
+  state "Vault" as vault {
+    [*] --> Running
+    Running --> Paused: report outside the check, or owner
+    Paused --> Running: owner unpauses
+  }
+  state "Withdrawal" as wd {
+    [*] --> Queued: request_withdraw
+    Queued --> Signed: fulfill_withdraw (agent)
+    Signed --> Done: execute_withdraw (agent or you)
+    Signed --> Failed: payout rejected
+    Failed --> Signed: signed again
+  }
+  state "Strategy" as mode {
+    [*] --> Hedging
+    Hedging --> Rotating: switch accepted
+    Rotating --> Hedging: old coin gone
+    Hedging --> Parked: no coin pays
+    Parked --> Hedging: funding back above 3%
+  }`}
+/>
+
+## The record
+
+The contract keeps a history of `(time, NAV, shares)`, about 500 entries, written at most every 10 minutes on testnet and every 30 on mainnet. The dashboard charts the share price from it. A gap in that history means the agent stopped reporting, which makes it a cheap uptime record too.
+
+## Fees in the NAV
+
+The performance fee is taken inside the report: if the new share price is above the high-water mark, the contract mints 5% of the gain to the treasury as shares before it records the new price. See [Fees](/fees).

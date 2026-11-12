@@ -1,0 +1,37 @@
+---
+title: Verify it live
+description: Six claims about who can move the money. Each one is checked against the chain when this page loads (cached for a minute), or comes with a command you can run yourself.
+---
+
+Pick a network. The checks run on the server when the page is built, against the real contract and Hyperliquid.
+
+<Tabs items={["Mainnet", "Testnet"]}>
+<Tab value="Mainnet">
+<LiveChecks network="mainnet" />
+</Tab>
+<Tab value="Testnet">
+<LiveChecks network="testnet" />
+
+On testnet, `verifier.nullpoint.testnet` stands in for `intents.near` with the same interface and real ERC-191 signature checks, and swaps are filled by a mock 1Click whose signing key the testnet vault trusts. NEAR's MPC network and Hyperliquid testnet are the real ones. See [Testnet and mainnet](/networks).
+</Tab>
+</Tabs>
+
+## Check it without this site
+
+Everything above is a public read. With `near-cli-rs`:
+
+```bash
+# The vault's state: owner, agent, parameters, last NAV, paused or not
+near contract call-function as-read-only vault.nullpoint.near get_state json-args '{}' network-config mainnet now
+
+# Every AI decision, with chat id and enclave address
+near contract call-function as-read-only vault.nullpoint.near get_decisions json-args '{"from":"0","limit":50}' network-config mainnet now
+
+# Every payload the contract asked NEAR's signers to sign
+near contract call-function as-read-only vault.nullpoint.near get_signed json-args '{"from":"0","limit":50}' network-config mainnet now
+
+# What the vault holds in NEAR Intents (USDC, nBTC)
+near contract call-function as-read-only intents.near mt_batch_balance_of json-args '{"account_id":"0x610da6eff2adec2aae201c2970fdafe66189b939","token_ids":["nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1","nep141:nbtc.bridge.near"]}' network-config mainnet now
+```
+
+The short is public on Hyperliquid's explorer under the same address. And `npm run demo` in the repo repeats the key checks with no keys at all ([Run it yourself](/run-it)).

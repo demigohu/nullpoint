@@ -1,0 +1,69 @@
+---
+title: Contract reference
+description: Every method of the vault contract, who may call it, and its parameters.
+---
+
+Source: `contracts/vault/src/lib.rs`. Amounts are strings in base units (USDC has 6 decimals; shares use the same scale).
+
+## Anyone
+
+| Method | Arguments | What it does |
+|---|---|---|
+| `ft_on_transfer` | via `ft_transfer_call` on the USDC token, `msg: ""` | Deposit. Takes the 0.5% fee, mints shares at the current share price. Refuses (and the token returns the USDC) when paused, over `max_tvl`, or when the share price is older than `max_nav_age_s` |
+| `request_withdraw` | `shares` | Burns your shares and queues a payout. Returns the withdrawal id |
+| `execute_withdraw` | `id` | Submits a payout the contract already signed. No caller check; it can only pay the account that asked |
+| `sweep` | | Moves deposited USDC into the vault's Intents account |
+
+## Agent
+
+| Method | Arguments | What it does |
+|---|---|---|
+| `report_prices` | `quotes: [{ message, signature }]` | Verifies 1Click price quotes (coin → USDC, at most 120 s old) and stores each coin's price |
+| `report_position` | `positions: [{ symbol, size, entry_notional }]`, `account_value` | Reads the Intents balances itself, checks the hedge and the reported Hyperliquid value, sets the NAV, charges the performance fee, records history. Pauses on a violation; drops a report built on stale prices |
+| `report_decision` | `decision: { hash, source, action, target, accepted, note, chat_id, signing_address }` | Stores an AI or rule decision (note up to 280 characters) |
+| `sign_quote` | `message`, `signature`, `salt_hex` | Verifies a 1Click quote, builds the transfer (or Hyperliquid `sendAsset`) and asks NEAR's signers to sign it. See [Swaps](/swaps) |
+| `fulfill_withdraw` | `id`, `salt_hex` | Prices a queued withdrawal and asks NEAR's signers to sign the USDC payout to its owner |
+
+## Owner
+
+| Method | Arguments | What it does |
+|---|---|---|
+| `set_params` | `params` (below) | Changes limits. Fees are checked against their caps |
+| `set_paused` | `paused` | Stops or resumes deposits, withdrawals and swaps |
+| `set_agent` | `agent` | Replaces the agent's NEAR account |
+| `set_margin_net` | `margin_net` | Corrects the record of collateral moved, after an investigation |
+| `approve_agent` | `agent` (0x address), `name` | Asks NEAR's signers to sign Hyperliquid `approveAgent`. Approving a new address under the same name replaces the old key |
+
+## Views
+
+| Method | Returns |
+|---|---|
+| `get_state` | Owner, agent, config, params, assets with prices, snapshot (NAV, time, balances), positions, totals, paused |
+| `get_shares(account_id)` | Shares held |
+| `get_holding(account_id)` | `{ shares, deposited, entry_cost }`: what you put in and the deposit fees inside it |
+| `get_withdrawals(from, limit)` | Queue with status `queued`, `signed`, `done` or `failed` |
+| `get_signed(from, limit)` | Every payload the contract asked to be signed, with the signature and the verified swap |
+| `get_decisions(from, limit)` | Every AI or rule decision |
+| `get_nav_history(from, limit)` | `(time, NAV, shares)` records |
+
+## Parameters
+
+| Field | Testnet | Mainnet | Meaning |
+|---|---|---|---|
+| `max_tvl` | 1,000 USDC | 100 USDC | Deposit cap |
+| `max_swap_usdc` | 100 | 50 | Largest single swap or transfer |
+| `max_slippage_bps` | 150 | 150 | Coin swaps vs the stored price |
+| `margin_slippage_bps` | 300 | 500 | Collateral transfers |
+| `hedge_band_bps` | 200 | 200 | Short vs spot per coin |
+| `max_report_drift_bps` | 200 | 200 | Reported Hyperliquid value vs expected |
+| `dust_usdc` | 0.5 | 1.5 | Added to both tolerances |
+| `max_price_age_s` | 120 | 120 | Oldest usable price |
+| `max_nav_age_s` | 600 | 900 | Oldest NAV a deposit may use |
+| `nav_history_interval_s` | 600 | 1800 | How often the share price is recorded |
+| `entry_fee_bps`, `exit_fee_bps` | 50 | 50 | Capped at 100 |
+| `performance_fee_bps` | 500 | 500 | Capped at 2000 |
+| `treasury` | `nullpoint.testnet` | `nullpoint.near` | Receives performance-fee shares |
+
+## Config (set at init)
+
+`usdc`, `usdc_token_id`, `hl_usdc_asset`, `hl_token`, `hl_chain`, `hl_signature_chain_id`, `verifier` (`intents.near` on mainnet), `mpc` (`v1.signer`), `mpc_path` (`hl-master`), `vault_address` (derived from the contract), `oneclick_pubkey` (1Click's signing key).

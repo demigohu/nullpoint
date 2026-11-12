@@ -1,0 +1,70 @@
+---
+title: The agent cycle
+description: What the agent does on every run, in what order, and how it recovers when something fails halfway.
+---
+
+The agent is stateless toward the chain: each run it reads the vault, NEAR Intents and Hyperliquid, then takes **one step** toward where the vault should be. It runs every 60 seconds on testnet and every 10 minutes on mainnet.
+
+<Mermaid
+  title="One agent run"
+  chart={`flowchart TB
+  start([Run starts]) --> resume[Finish any move a crash left half done<br/>journal + is_nonce_used]
+  resume --> paused{Vault paused?}
+  paused -- yes --> stop([Skip; owner investigates])
+  paused -- no --> sweep[Sweep new deposits into Intents]
+  sweep --> prices[report_prices<br/>signed 1Click quotes]
+  prices --> ai{30 min since the<br/>last decision?}
+  ai -- yes --> decide[Ask the AI, check the limits,<br/>record the decision on-chain]
+  ai -- no --> alloc
+  decide --> alloc
+  subgraph one[Allocation: the first that applies, then stop]
+    direction TB
+    a1[1. Pay signed and queued withdrawals]
+    a2[2. Margin emergency: add collateral or shrink]
+    a3[3. Raise USDC for the next withdrawal]
+    a4[4. Move a coin that isn't the target]
+    a5[5. Send collateral up to value / 3]
+    a6[6. Buy or sell coin toward the other 2/3]
+    a7[7. Pull back extra collateral]
+  end
+  alloc[Allocate] --> one
+  one --> hedge[Set each short equal to its coin]
+  hedge --> ok{Hedge inside the band?}
+  ok -- no --> wait([Don't report; fix it next run])
+  ok -- yes --> report[report_position<br/>contract checks and sets the NAV]
+  report --> done([Run ends])`}
+/>
+
+## Allocation rules
+
+| Priority | When | What |
+|---|---|---|
+| 1 | Withdrawals are signed or queued and idle USDC covers them | Pay them, oldest first, up to 5 a run |
+| 2 | Hyperliquid account under 3× its maintenance margin | Add collateral from idle USDC, or sell a quarter of the coin so the short shrinks |
+| 3 | The next queued withdrawal needs more USDC | Sell coin (on mainnet first, since it's cheaper), or pull collateral when the gap is large |
+| 4 | A coin other than the target is held (after a switch, or parking) | Swap it toward the target in capped steps |
+| 5 | Collateral below value ÷ (leverage + 1) | Send collateral (at least $10 per transfer on mainnet) |
+| 6 | Coin below its share of the value | Buy coin with idle USDC (in steps of at least $12, Hyperliquid's $10 minimum plus room) |
+| 7 | Collateral above target by a margin ($5 testnet, $20 mainnet) | Pull it back |
+
+Every swap is **short first**: the agent changes the short, then asks the contract to sign the swap. If Hyperliquid refuses the order, the swap doesn't happen.
+
+## Built to survive failure
+
+| What can fail | What the agent does |
+|---|---|
+| The process crashes after the contract signed a move | Every move is journaled (quote → signed → executed → filled). On restart it checks `is_nonce_used` on Intents and finishes the move if the signature is still valid. Tested with a forced crash right after signing |
+| 1Click settles slowly | It polls `/v0/status` for up to 3 minutes; a move still pending stays in the journal for the next run. It re-reports prices before the position report if they're getting old |
+| 1Click stops quoting one coin for a while | Prices the other coins and carries on |
+| Hyperliquid refuses an order | The matching swap is skipped; the hedge step tries again next run |
+| An RPC endpoint is slow or down | Tries the next one. Signed transactions are re-broadcast with the same bytes, so they can't run twice |
+| A transaction is rejected outright (no NEAR for gas, missing key) | Fails at once with the RPC's error, so it shows in the log |
+| An RPC from the other network is configured | Refuses to start |
+| Two agents on one host | A lock file stops the second |
+
+## Keys the agent holds
+
+- A **NEAR function-call key** on `agent.nullpoint.near` that can only call the vault contract. It can't send NEAR or call anything else.
+- A **Hyperliquid trading key** approved by the vault (through NEAR's signers) as an agent on the vault's account. Hyperliquid only lets it place and cancel orders.
+
+Neither can move the vault's money. See [Security model](/security).

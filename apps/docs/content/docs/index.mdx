@@ -1,0 +1,67 @@
+---
+title: What is NullPoint
+description: A USDC vault on NEAR that earns the funding traders pay on Hyperliquid, without betting on where prices go. An AI agent runs it, and a smart contract decides where the money may go.
+---
+
+## In one minute
+
+You deposit USDC. The vault uses it to hold a coin (BTC, ETH or NEAR) and, at the same time, an equal bet against that coin on Hyperliquid, a crypto futures exchange. If the coin's price falls 10%, the coin loses about what the bet gains. If the price rises, the reverse. Your money stays roughly where it was.
+
+What's left over is **funding**: a fee that traders betting on prices going up pay, every hour, to traders betting against them. The vault is always on the receiving side, and that income raises the value of your shares.
+
+## A worked example
+
+Say you put in $1,000 and BTC is at $70,000.
+
+| | Coin held | Bet against BTC | Your $1,000 is worth |
+|---|---|---|---|
+| Today | about $667 of BTC | about $667 short, with $333 as collateral | $1,000 |
+| BTC falls 20% | worth $533 (−$133) | gains $133 | about $1,000 |
+| BTC rises 20% | worth $800 (+$133) | loses $133 | about $1,000 |
+| A week of 10% yearly funding | | collects about $1.30 | about $1,001.30 |
+
+The numbers are rounded, and the deposit and withdrawal fees (0.5% each, see [Fees](/fees)) come out of the same money. Funding changes every hour and can turn negative; [Risks](/risks) explains what happens then.
+
+## Who does what
+
+<Mermaid
+  title="System context"
+  chart={`flowchart LR
+  user([You, with a NEAR wallet])
+  subgraph nearchain[NEAR]
+    vault[Vault contract<br/>vault.nullpoint.near]
+    mpc[NEAR Chain Signatures<br/>signs only what the contract asks]
+    intents[(NEAR Intents account<br/>holds the coin)]
+  end
+  oneclick[1Click<br/>swaps, prices, transfers]
+  hl[(Hyperliquid<br/>holds the short)]
+  ai[AI model on NEAR AI Cloud<br/>sealed enclave]
+  agent[Agent<br/>runs the vault on a schedule]
+  user -- deposit and withdraw USDC --> vault
+  agent -- asks for swaps, reports, payouts --> vault
+  vault -- signature requests --> mpc
+  mpc -. signs for .-> intents
+  mpc -. signs for .-> hl
+  intents <-- swaps and collateral --> oneclick
+  oneclick <-- collateral --> hl
+  agent -- places and closes the short --> hl
+  ai -- signed advice: hold, switch, wait --> agent`}
+/>
+
+- **The vault contract** on NEAR holds the rules: shares, the share price, deposits, withdrawals, and every signature the vault makes.
+- **NEAR Chain Signatures** give the contract its own Ethereum-style address. That one address owns the vault's NEAR Intents account (where the coin sits) and its Hyperliquid account (where the short lives). Nothing leaves either account unless the contract asks NEAR's signers to sign it.
+- **The agent** does the work every few minutes: moves money, keeps the two sides equal, reports to the contract. It can trade. It can't withdraw.
+- **An AI model**, running in a sealed enclave on NEAR AI Cloud, decides which coin to hold. Fixed limits check every answer before anything happens.
+- **1Click** (NEAR Intents) swaps USDC for coins and carries collateral to and from Hyperliquid. Its signed quotes are also how the contract knows prices.
+
+## Try it
+
+- **No money involved:** open the app on testnet, get free test USDC from the account menu, and deposit. You'll see the agent hedge it on the dashboard within a minute or two.
+- **Real money:** the mainnet vault is live with a $100 cap while the contract is unaudited. [Mainnet proof](/mainnet) lists every transaction.
+- **Without the app:** `npm run demo` in the repo checks the live vault, recomputes its address, and verifies a real 1Click quote. No keys needed. See [Run it yourself](/run-it).
+
+## Where to read next
+
+- New to this? [How you earn](/earn), then [Deposit and withdraw](/use).
+- Judging or reviewing? [Architecture](/architecture), [Swaps: verify, then sign](/swaps), [Security model](/security), then [Verify it live](/verify).
+- Building on it? [Run it yourself](/run-it) and [Contract reference](/contract).

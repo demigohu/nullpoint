@@ -1,0 +1,56 @@
+---
+title: Lessons from mainnet
+description: What testnet didn't show us, what broke, and what we changed. Written down because each one is a trap for the next builder.
+---
+
+## Hyperliquid charges 1 USDC to send to a new address
+
+**Found:** the first mainnet withdrawal, 12 Nov. The agent pulled 5.76 USDC of collateral back through 1Click, and the Hyperliquid account dropped by 6.80. The ledger shows `fee: "1.0"` on the `sendAsset`: 1Click gives every quote a fresh deposit address, and Hyperliquid charges to send to an address it hasn't seen.
+
+**Why testnet hid it:** the mock solver uses one fixed address, so the fee never appeared.
+
+**Impact:** the contract saw 1 USDC it couldn't explain, and the report passed its check by 3 cents. One more pull could have paused the vault.
+
+**Fix:** the mainnet dust allowance went from 0.5 to 1.5 USDC (`set_params`, no redeploy), and the agent only pulls collateral in transfers of 20 USDC or more. Small withdrawals are paid by selling coin (about 0.3%) instead of paying 1.2 USDC to move collateral.
+
+## Small collateral transfers fail the slippage check
+
+**Found:** after a 5 USDC re-deposit, the agent tried to send it to Hyperliquid every run and the contract refused it each time ("minAmountOut too low").
+
+**Why:** 1Click's flat fee of about 0.3 USDC is 6% of 5 USDC, over the 5% limit for collateral transfers. The contract was right.
+
+**Fix:** mainnet sends collateral in transfers of at least 10 USDC. The limit for collateral is 5% on mainnet (3% on testnet) for the same reason.
+
+## Hyperliquid won't approve a key for an empty account
+
+**Found:** before the mainnet deploy, by checking the vault's address: `userRole: missing`. `approveAgent` is refused until the address has received funds.
+
+**Fix:** a bootstrap order: deposit, let the agent send collateral (which needs no trading key), then approve the key. The agent is safe in between because it shorts first: without a short, it never buys the coin.
+
+## A late report paused the vault
+
+**Found:** testnet, 12 Nov. The agent reported its position three minutes after its prices; the contract treated the stale price as a violation and paused.
+
+**Fix:** a stale price now drops the report (the old NAV stays) instead of pausing; only value mismatches pause. The agent also re-reports prices before a late position report.
+
+## An RPC from the wrong network
+
+**Found:** testnet swaps and a withdrawal stalled for an afternoon. The testnet `.env` listed a mainnet RPC as a fallback. Whenever the first RPC was slow, testnet transactions went to mainnet and came back "Expired", and their status was never found.
+
+**Fix:** the agent checks every RPC's `chain_id` at startup and refuses to run with the wrong one. Rejected transactions now fail at once with the RPC's error instead of waiting three minutes.
+
+## Out of gas, silently
+
+**Found:** testnet withdrawals stalled. The agent had 0.27 NEAR; a 300 Tgas transaction needs about 0.3 NEAR available up front. The RPC refused it with an HTTP 500, which looked like a network error.
+
+**Fix:** the error now surfaces at once, the docs say to keep 0.5 NEAR free, and `/api/health` flags the agent under 1 NEAR.
+
+## 1Click sometimes stops quoting a pair
+
+**Found:** mainnet, "Quoting for this pair is not available" for one coin the vault didn't hold, which failed the whole run.
+
+**Fix:** the agent prices the coins it can and carries on; the contract only needs fresh prices for coins the vault holds.
+
+## The AI said no
+
+Not a bug. Staging a coin switch on testnet with fake funding, the model refused to move into NEAR because open interest there was only about $168k. The rule switched anyway. Both decisions are on-chain. See [AI strategist and limits](/strategist).

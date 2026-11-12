@@ -1,0 +1,70 @@
+---
+title: Testnet and mainnet
+description: What's real on each network, what's a stand-in, and why.
+---
+
+NEAR Intents and 1Click have no testnet, so testnet runs the same contract against stand-ins with the same interfaces. Everything else is real on both.
+
+<Mermaid
+  title="Deployment on each network"
+  chart={`flowchart LR
+  subgraph test[Testnet]
+    direction TB
+    tv[vault.nullpoint.testnet]
+    tm[mock verifier<br/>verifier.nullpoint.testnet<br/>real ERC-191 checks]
+    tu[mock USDC<br/>open mint]
+    tq[mock 1Click in the agent<br/>own ed25519 key]
+    ta[agent keeper.nullpoint.testnet<br/>every 60 s]
+    tmpc[v1.signer-prod.testnet]
+    thl[(Hyperliquid testnet)]
+    tv --> tm
+    tu --> tv
+    ta --> tq
+    ta --> tv
+    tv --> tmpc
+    ta --> thl
+  end
+  subgraph main[Mainnet]
+    direction TB
+    mv[vault.nullpoint.near]
+    mi[intents.near]
+    mu[native USDC]
+    mq[1Click API]
+    ma[agent agent.nullpoint.near<br/>every 10 min]
+    mmpc[v1.signer]
+    mhl[(Hyperliquid)]
+    mv --> mi
+    mu --> mv
+    ma --> mq
+    ma --> mv
+    mv --> mmpc
+    ma --> mhl
+  end`}
+/>
+
+| Part | Testnet | Mainnet |
+|---|---|---|
+| Vault contract | `vault.nullpoint.testnet` | `vault.nullpoint.near` |
+| Same contract code? | Yes | Yes |
+| USDC | Mock USDC with an open mint (free from the app's account menu) | Native USDC on NEAR |
+| Intents | `verifier.nullpoint.testnet`: copies `intents.near`'s interface, with real ERC-191 signature recovery, nonces and deadlines | `intents.near` |
+| Swaps and prices | A mock 1Click in the agent: quotes in 1Click's exact format, priced off Hyperliquid testnet minus 0.3%, signed with a key the testnet vault trusts | 1Click, with 1Click's own key in the contract |
+| Collateral to Hyperliquid | A mock solver wallet sends real Hyperliquid testnet USDC | 1Click |
+| The short | Hyperliquid testnet (real) | Hyperliquid (real) |
+| Signatures | `v1.signer-prod.testnet` (real MPC) | `v1.signer` (real MPC) |
+| Agent | `keeper.nullpoint.testnet`, every 60 s | `agent.nullpoint.near`, every 10 min |
+| Deposit cap | $1,000 | $100 |
+| Biggest single swap | $100 | $50 |
+| Collateral slippage limit | 3% | 5% (1Click's flat fee is larger relative to small transfers) |
+| Dust allowance in the report check | 0.5 USDC | 1.5 USDC (Hyperliquid's 1 USDC fee on collateral pulls) |
+| Share price recorded | every 10 min | every 30 min |
+
+## What testnet can't show
+
+- Real 1Click fills and fees. Mainnet shows them.
+- Realistic funding. Hyperliquid testnet funding runs to hundreds of percent a year either way.
+- Hyperliquid's 1 USDC fee on transfers to new addresses, found on mainnet ([Lessons from mainnet](/lessons)).
+
+## What mainnet adds
+
+The same code path with real money: 1Click's `/v0/submit-intent`, real nBTC in `intents.near`, a real short. [Mainnet proof](/mainnet) has the transactions.

@@ -1,0 +1,51 @@
+---
+title: Running the agent
+description: Configuration, running testnet and mainnet side by side, and keeping it alive.
+---
+
+## One agent per network
+
+```bash
+npm run agent           # testnet, reads .env
+npm run agent:mainnet   # mainnet, reads .env.mainnet
+```
+
+Both can run on one machine: each network has its own lock, journal (`apps/agent/.state/`, `.state/mainnet/`), keys and env file. Never run two agents with the same NEAR key; their transactions would fight over the key's nonce.
+
+## Environment
+
+| Variable | Testnet | Mainnet | What |
+|---|---|---|---|
+| `NETWORK` | `testnet` (default) | `mainnet` | Which vault, Intents contract and Hyperliquid |
+| `OWNER` | `nullpoint.testnet` | `nullpoint.near` | The vault is `vault.$OWNER` |
+| `AGENT_ACCOUNT`, `AGENT_PRIVATE_KEY` | `keeper.nullpoint.testnet` | `agent.nullpoint.near` | Function-call key that can only call the vault (`scripts/add-agent-keys.ts`) |
+| `HL_AGENT_PRIVATE_KEY` | or `.keys/hl-agent.json` | or `.keys/mainnet/hl-agent.json` | Hyperliquid trading key |
+| `SOLVER_ACCOUNT`, `SOLVER_PRIVATE_KEY`, `SOLVER_HL_PRIVATE_KEY` | needed | not used | The mock 1Click solver |
+| `NEAR_INTENTS_API_KEY` | not used | partner key | 1Click quotes without the 0.25% unauthenticated fee |
+| `NEARAI_API_KEY` | | | The AI; without it the rule decides |
+| `NEAR_RPC_URLS` | testnet RPCs | mainnet RPCs | Tried before the public ones. The agent refuses to start if one serves the other network |
+| `INTERVAL_S` | 60 | 600 | Seconds between runs |
+| `STRATEGIST_INTERVAL_MIN` | 30 | 30 | Minutes between AI decisions |
+
+## NEAR for gas
+
+Transactions that ask NEAR's signers for a signature attach 300 Tgas, and NEAR wants about 0.3 NEAR available up front for that (most of it comes back). Keep at least 0.5 NEAR free on the agent account at all times; under it, swaps and payouts fail. Running costs are about 1.1 NEAR a day on testnet (every 60 s) and about 0.14 on mainnet (every 10 min). `/api/health` flags the account under 1 NEAR.
+
+## On a server
+
+`ecosystem.config.cjs` runs both agents under pm2 with automatic restarts. Copy `.env`, `.env.mainnet` and `.keys/` to the server, never to the repository. Keep the owner's full-access key off the server: the agent only ever needs its restricted keys.
+
+## The Hyperliquid key expires
+
+Hyperliquid approves agent keys for 90 days. Run `node scripts/approve-agent.ts --network mainnet` again before the date shown on the status page (10 Feb 2027 for the current mainnet key).
+
+## Reading the log
+
+| Line | Meaning |
+|---|---|
+| `NAV 42.57 USDC \| target BTC \| HL 7.62 \| [...] \| paused false` | A report was accepted |
+| `sent 14.76 USDC margin to Hyperliquid (sign tx …)` | Collateral transfer signed and settled |
+| `shorted BTC 0.0004 -> filled` then `bought BTC with 29.32 USDC` | Short first, then the coin |
+| `hedge off for BTC; not reporting until it's fixed` | Waiting for the hedge before reporting |
+| `allocation step failed: …` | That step is skipped; the report still goes out |
+| `vault paused, skipping` | The owner needs to look |

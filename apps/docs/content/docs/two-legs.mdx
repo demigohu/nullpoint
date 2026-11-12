@@ -1,0 +1,65 @@
+---
+title: The two legs
+description: Where every dollar goes, how the coin and the short stay equal, and how money moves between NEAR and Hyperliquid.
+---
+
+## The split
+
+The vault keeps two legs the same size:
+
+- **The long leg:** the coin (nBTC, ETH or wNEAR) held in the vault's NEAR Intents account.
+- **The short leg:** a perpetual short of the same coin and size on Hyperliquid.
+
+The short needs collateral. At the default 2x leverage, the agent splits the vault's value so that **collateral = value ÷ 3** and **coin = the other two thirds**. A $30 short is backed by $15 of collateral, and $30 of coin sits on the other side.
+
+## How the money moves
+
+<Mermaid
+  title="Fund flow"
+  chart={`flowchart LR
+  you([Your wallet])
+  subgraph near[NEAR]
+    vault[Vault contract]
+    subgraph acct[Vault's Intents account]
+      idle[(Idle USDC)]
+      coin[(Coin: nBTC, ETH, wNEAR)]
+    end
+  end
+  subgraph hlx[Hyperliquid, same address]
+    coll[(Collateral USDC)]
+    short[[Short perp]]
+  end
+  you -- 1. deposit USDC --> vault
+  vault -- 2. sweep --> idle
+  idle -- 3. collateral via 1Click --> coll
+  coll --- short
+  idle -- 4. buy coin via 1Click --> coin
+  coin -- sell for withdrawals or a switch --> idle
+  coll -- collateral back via 1Click --> idle
+  idle -- 5. payout, signed by NEAR signers --> you`}
+/>
+
+Every arrow out of the vault's accounts is a payload the contract built and NEAR's signers signed. Every arrow through 1Click starts with a 1Click quote the contract checked first ([Swaps: verify, then sign](/swaps)).
+
+| Move | From → to | How |
+|---|---|---|
+| Sweep | Vault contract → Intents account | `ft_transfer_call` to `intents.near`, recipient fixed by the contract |
+| Buy or sell coin | Inside the Intents account | 1Click quote, the contract signs an Intents transfer to the quote's deposit address, 1Click delivers the other token |
+| Collateral out | Intents USDC → Hyperliquid perp balance | Same, with Hyperliquid USDC as the destination; it lands straight in the perp balance |
+| Collateral back | Hyperliquid → Intents USDC | 1Click quote, the contract builds a Hyperliquid `sendAsset` to the quote's deposit address and NEAR's signers sign it |
+| Short | — | Orders placed by the agent's trading key; the only thing that key can do |
+| Payout | Intents account → your wallet | `ft_withdraw` intent built by the contract, naming you as receiver |
+
+## Short first
+
+Whenever a swap changes the coin, the agent changes the short **before** the swap: shrink the old coin's short, open the new coin's short. If Hyperliquid refuses the order (it happens, for example when its mark and oracle prices are far apart), the swap never runs. The vault never holds a coin it hasn't hedged.
+
+## Keeping them equal
+
+After every step, the agent sets each coin's short to the coin it holds. Orders under $10 aren't allowed on Hyperliquid, so a small leftover gap is closed with two orders: one a little too big, then a small one back.
+
+The contract checks the same thing: a report where any coin's short and spot differ by more than 2% (plus a small dust allowance) is refused. The agent doesn't send a report it knows is off; it fixes the hedge first.
+
+## A switch between coins
+
+Switching from BTC to NEAR happens in steps of at most $100 (testnet) or $50 (mainnet) per run: shrink the BTC short, grow the NEAR short, swap BTC for NEAR through 1Click. On testnet on 12 Nov a switch of about $650 took six runs, about 15 minutes, and cost about 0.45% of the vault.

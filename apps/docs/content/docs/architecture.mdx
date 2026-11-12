@@ -1,0 +1,81 @@
+---
+title: Architecture
+description: One NEAR contract holds the rules and the keys. One agent does the work. Four outside services each do one job, and none of them can move the vault's money on its own.
+---
+
+## The pieces
+
+<Mermaid
+  title="Containers: what runs where"
+  chart={`flowchart TB
+  subgraph browser[Your browser]
+    web[Web app, apps/web<br/>Next.js on Vercel<br/>deposit, withdraw, dashboard]
+    docs[Docs, apps/docs<br/>Fumadocs]
+  end
+  subgraph vps[Agent host, a VPS]
+    agent[Agent, apps/agent<br/>Node, one process per network]
+    kuma[Uptime Kuma<br/>status page and email alerts]
+  end
+  subgraph near[NEAR]
+    vault[Vault contract, contracts/vault<br/>Rust, near-sdk]
+    mpc[MPC signer<br/>v1.signer]
+    intents[(intents.near<br/>vault's Intents account)]
+    usdc[(USDC token)]
+  end
+  subgraph outside[Outside services]
+    oneclick[1Click API]
+    hl[(Hyperliquid)]
+    nearai[NEAR AI Cloud<br/>model in a TEE]
+  end
+  core[[packages/core<br/>shared TypeScript: addresses, quotes,<br/>Hyperliquid helpers, strategy limits]]
+  web -- view calls, wallet transactions --> vault
+  web -- deposits --> usdc
+  agent -- function-call key, vault only --> vault
+  agent -- quotes, submit-intent, status --> oneclick
+  agent -- trading key: orders only --> hl
+  agent -- asks for a decision --> nearai
+  kuma -- GET /api/health --> web
+  vault -- sign requests --> mpc
+  vault -- deposits, balance reads --> intents
+  oneclick -- fills intents --> intents
+  oneclick -- moves collateral --> hl
+  web -.-> core
+  agent -.-> core`}
+/>
+
+| Piece | Where | Job |
+|---|---|---|
+| Vault contract | `contracts/vault` (Rust) | Shares and share price, deposits and withdrawals, checking 1Click quotes, building every payload and asking NEAR's signers to sign it, checking the agent's reports, the on-chain log of AI decisions, pause |
+| Agent | `apps/agent` (Node, TypeScript) | Runs on a schedule (every minute on testnet, every 10 on mainnet): sweep deposits, report prices, ask the AI, move one step toward the target, keep the short equal to the coin, report, pay withdrawals |
+| Web app | `apps/web` (Next.js) | Deposit and withdraw with a review of every transaction, a live dashboard and activity log, `/api/health` for monitoring |
+| Docs | `apps/docs` (Fumadocs) | This site, including live checks against the chain |
+| Shared code | `packages/core` | NEAR RPC helpers, MPC address derivation, the exact 1Click message format, Hyperliquid signing helpers, the strategy limits and rule |
+| Testnet stand-ins | `contracts/mock-verifier`, `contracts/mock-ft`, `apps/agent/src/mock1click.ts` | NEAR Intents and 1Click have no testnet, so testnet uses copies with the same interfaces and real signature checks |
+
+## One address, two accounts
+
+The contract `vault.nullpoint.near` asks NEAR's MPC network for the key at path `hl-master`. That gives it an Ethereum-style address, `0x610d…b939` on mainnet. The same address is:
+
+- the vault's account inside `intents.near`, where the coin and idle USDC sit, and
+- the vault's master account on Hyperliquid, where the short and its collateral live.
+
+Nobody holds that key. The MPC network signs with it only when the contract asks, and the contract only asks for payloads it built itself from rules. [Security model](/security) lists them.
+
+## Who can call what
+
+| Caller | Methods |
+|---|---|
+| Anyone | `ft_on_transfer` (deposit), `request_withdraw`, `execute_withdraw`, `sweep`, all views |
+| Agent (`agent.nullpoint.near`) | `report_prices`, `report_position`, `report_decision`, `sign_quote`, `fulfill_withdraw` |
+| Owner (`nullpoint.near`) | `set_agent`, `set_params`, `set_paused`, `set_margin_net`, `approve_agent` |
+
+The full list with arguments is in the [Contract reference](/contract).
+
+## Outside services and what they can do alone
+
+| Service | Used for | Can it move the vault's money by itself? |
+|---|---|---|
+| NEAR Chain Signatures | The vault's address, and signing what the contract asks | No. It signs only what the contract requests |
+| NEAR Intents and 1Click | Swaps, moving USDC to and from Hyperliquid, signed price quotes | No. It fills intents the contract signed, which always pay the vault |
+| Hyperliquid | The short and its funding | The account belongs to the contract's address; the agent's key can only trade |
+| NEAR AI Cloud | Runs the model in an enclave and signs its answers | No. It proposes; fixed limits decide; the contract's rules bound the rest |

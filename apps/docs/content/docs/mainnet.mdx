@@ -1,0 +1,48 @@
+---
+title: Mainnet proof
+description: NullPoint running with real USDC on NEAR mainnet, real 1Click swaps and a real short on Hyperliquid. Every step has a transaction you can open.
+---
+
+## Right now
+
+Read live from NEAR and Hyperliquid when this page is built (cached for a minute):
+
+<MainnetProof />
+
+## Addresses
+
+| What | Address |
+|---|---|
+| Vault contract (verified on NearBlocks) | [`vault.nullpoint.near`](https://nearblocks.io/address/vault.nullpoint.near) |
+| Owner and treasury | `nullpoint.near` |
+| Agent | [`agent.nullpoint.near`](https://nearblocks.io/address/agent.nullpoint.near) |
+| The vault's address in NEAR Intents and on Hyperliquid (derived from the contract by `v1.signer`, path `hl-master`) | [`0x610da6eff2adec2aae201c2970fdafe66189b939`](https://app.hyperliquid.xyz/explorer/address/0x610da6eff2adec2aae201c2970fdafe66189b939) |
+| The agent's Hyperliquid trading key ("nullpoint-agent", valid until 10 Feb 2027) | `0xd8b2be1be359685bd052cd5924541f38575ddb71` |
+
+## The first day, transaction by transaction (12 Nov 2026, UTC)
+
+| Step | What happened | Transaction |
+|---|---|---|
+| 1 | Created `vault.nullpoint.near` (3.8 NEAR for storage) | [`F4Mi9p5K…`](https://nearblocks.io/txns/F4Mi9p5KCG2USSJF9WAYwjiHnHrY89T77EyMpPSCd11N) |
+| 2 | Created `agent.nullpoint.near` (1.5 NEAR for gas) | [`8ZF4wSzk…`](https://nearblocks.io/txns/8ZF4wSzkj8qPrMH6uXnyp1At4q9k3nET8W8woZX7UGmb) |
+| 3 | Deployed and initialized the vault, reproducible build of commit `8e28abf` | [`J1ZHrMaE…`](https://nearblocks.io/txns/J1ZHrMaEqAbciW8wMxMY61W1bzkg3vLiTeF8qjfVWpbU) |
+| 4 | Registered the vault on native USDC | [`7rCYYWxX…`](https://nearblocks.io/txns/7rCYYWxX4h5qftKT86uSoDc5aqx79RtM16pfwdNSehtuP) |
+| 5 | First deposit, 44 USDC, swept into the vault's Intents account | [`G5cmNQxc…`](https://nearblocks.io/txns/G5cmNQxcqLA2sYy4L5xQGV8VjgqxpThbz31TxGfzWjEb) |
+| 6 | Contract checked a real 1Click quote and NEAR's signers signed 14.77 USDC of collateral to Hyperliquid; 14.45 arrived | [`G9ManbtA…`](https://nearblocks.io/txns/G9ManbtAdVcFvedKdRg4VAbcXueZg9TRfZPFpwDKSwD4) |
+| 7 | NEAR's signers signed `approveAgent` for the trading key, at the owner's request | [`BWsqw7Cc…`](https://nearblocks.io/txns/BWsqw7CcbZ54rQpRhtAxXY85kYuf6NMsQQu3QP7BqsaX) |
+| 8 | Short 0.0004 BTC on Hyperliquid (order `603051969380`), then bought 29.32 USDC of BTC through 1Click | [`6Q4Yuh5N…`](https://nearblocks.io/txns/6Q4Yuh5NCyGcyGjgPngXxPTUk7cPqUVuiAWDuWygTork) |
+| 9 | Pulled 5.76 USDC of collateral back for a withdrawal | [`6yWgxsy7…`](https://nearblocks.io/txns/6yWgxsy7tm2MFh1dmBV5T6JKCNgX8krY88oVQic3pCMK) |
+| 10 | Raised the dust allowance to 1.5 USDC after finding Hyperliquid's 1 USDC fee ([Lessons](/lessons)) | [`HcRCVcpS…`](https://nearblocks.io/txns/HcRCVcpSZo37TSt6ZQ4ZqfAvnKg7WdJP7CdDRkH1YJf1) |
+| 11 | Paid withdrawal #0: 5 shares, 4.81 USDC to `nullpoint.near` | [`8ViwcjoZ…`](https://nearblocks.io/txns/8ViwcjoZWNkZmdWRsywVop1GjxAvRftwP4p8UBdcW3rj) |
+
+After step 8 the vault held 0.00040764 nBTC against a 0.0004 BTC short: hedged, at about 2x leverage on Hyperliquid, with a share price of $0.9978 (the deposit fee and the first transfer's cost).
+
+## What this proves
+
+- A NEAR contract can own a Hyperliquid account and a NEAR Intents account through Chain Signatures, and run real money through both.
+- 1Click accepts intents signed by NEAR's MPC network for the vault's address (`/v0/submit-intent`), both for swaps and for collateral to Hyperliquid.
+- The whole cycle works with real money: deposit, swap, collateral, short, report, withdrawal.
+
+## Why so small
+
+The contract is a hackathon build and hasn't been audited, so the mainnet vault is capped at $100. The owner can raise the cap with `set_params` without redeploying.

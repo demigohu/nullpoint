@@ -1,0 +1,107 @@
+---
+title: Run it yourself
+description: Three levels. A demo that needs no keys and no money, the tests and attack scripts, and the whole system on your own testnet accounts.
+---
+
+## Requirements
+
+- Node 24 or newer (scripts run TypeScript directly) and npm 11
+- For the contracts: Rust, `cargo-near`, `near-cli-rs`, and Docker for reproducible builds
+
+```bash
+git clone https://github.com/demigohu/nullpoint
+cd nullpoint
+npm install
+```
+
+## 1. No keys, no funds
+
+```bash
+npm run demo
+```
+
+Five checks against live data, in under a minute:
+
+1. Reads the live testnet vault: share price, shares, the short on Hyperliquid, paused or not.
+2. Recomputes the vault's address from its contract account through NEAR Chain Signatures and compares it with the one the contract has configured.
+3. Fetches a real mainnet 1Click quote and verifies its ed25519 signature the way `sign_quote` does; the same quote with the recipient swapped to an attacker fails.
+4. Takes the vault's real position (coin from the contract, short from Hyperliquid) and reprices both 20% up and down: the value barely moves.
+5. Runs a compromised strategist's wish list through the limits: all blocked.
+
+```bash
+npm test
+```
+
+Runs the shared-code tests, the field test, 25 contract unit tests (with real mainnet 1Click quotes and a real MPC signature) and 2 integration tests on a local NEAR sandbox. Works on a clean clone without any `.env`.
+
+## 2. Try to break it
+
+```bash
+npm run attack             # the agent's own keys try to steal (needs the testnet agent keys)
+npm run attack:llm         # prompt injection and a compromised model (needs NEARAI_API_KEY)
+npm run simulate:crash     # BTC ±20% in a day, minute by minute
+npm run simulate:strategy  # weeks of real Hyperliquid funding: hold vs rule vs AI
+```
+
+## 3. The whole system on testnet
+
+<Steps>
+<Step>
+**Create a testnet account** (for example with `near account create-account`) and fund it from the faucet.
+</Step>
+<Step>
+**Deploy** the vault, the mock Intents contract, mock USDC and an agent account under it:
+
+```bash
+OWNER=you.testnet npm run deploy:testnet
+```
+</Step>
+<Step>
+**Create the agent's restricted keys**, a function-call key that can only call the vault and the mock solver's key. They're written to `.env`:
+
+```bash
+cd scripts && OWNER=you.testnet node add-agent-keys.ts
+```
+</Step>
+<Step>
+**Approve the agent's Hyperliquid trading key** through the contract (NEAR's signers sign `approveAgent`):
+
+```bash
+OWNER=you.testnet node approve-agent.ts
+```
+</Step>
+<Step>
+**Start the agent.** Fill in the rest of `.env` from `.env.example` (NEAR AI Cloud key for the AI, optionally a paid RPC), then:
+
+```bash
+npm run agent
+```
+</Step>
+<Step>
+**Start the app and the docs**, connect a testnet wallet, get test USDC from the account menu, deposit and watch the dashboard:
+
+```bash
+npm run dev   # web on :3000, docs on :3001
+```
+</Step>
+</Steps>
+
+`npm run e2e:testnet` exercises deposit, sweep, report and an MPC-signed withdrawal without the agent. `npm run reset:testnet` closes positions and redeploys with fresh state on the same accounts.
+
+To stage a coin switch on testnet (whose funding is unrealistic), run the agent with fake funding for a few minutes:
+
+```bash
+DEMO_FUNDING='{"NEAR":2000,"BTC":300}' DEMO_MIN_HOLD_HOURS=0 STRATEGIST_INTERVAL_MIN=1 STRATEGIST=rule npm run agent
+```
+
+## Repository layout
+
+| Path | What |
+|---|---|
+| `contracts/vault` | The vault contract (Rust, near-sdk) and its tests |
+| `contracts/mock-verifier`, `contracts/mock-ft` | Testnet stand-ins for `intents.near` and USDC |
+| `packages/core` | Shared TypeScript: addresses, 1Click format, Hyperliquid helpers, strategy and limits |
+| `apps/agent` | The agent |
+| `apps/web` | The app: landing, vault, dashboard, `/api/health` |
+| `apps/docs` | These docs |
+| `scripts/` | Demo, attacks, simulations, deploy and key scripts |

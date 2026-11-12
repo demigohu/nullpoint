@@ -1,0 +1,64 @@
+---
+title: Deploy and verify
+description: Deploying the vault to testnet or mainnet, approving the trading key, and verifying the contract source on NearBlocks.
+---
+
+## Mainnet, one step at a time
+
+`scripts/deploy-mainnet.sh` does nothing without an argument except print its plan: accounts, the vault's derived address, and the exact init arguments. Each step that signs a transaction is a separate command.
+
+```bash
+bash scripts/deploy-mainnet.sh            # plan: prints everything, sends nothing
+bash scripts/deploy-mainnet.sh accounts   # vault.$OWNER (3.8 NEAR) and agent.$OWNER (1.5 NEAR)
+bash scripts/deploy-mainnet.sh contract   # reproducible build in Docker, deploy and init
+bash scripts/deploy-mainnet.sh register   # register the vault on the USDC contract
+node scripts/add-agent-keys.ts --network mainnet   # agent key, written to .env.mainnet
+```
+
+Then:
+
+1. Deposit through the app.
+2. Start the agent (`npm run agent:mainnet`). Its first move sends collateral to Hyperliquid, which creates the vault's account there.
+3. Approve the trading key: `node scripts/approve-agent.ts --network mainnet`. Hyperliquid refuses `approveAgent` for an address that has never received funds, so this comes after step 2; the script checks and refuses to run early.
+4. The next run opens the short and buys the coin.
+
+The owner's key lives in the OS keychain (`near account import-account`). Every mainnet transaction needs the owner's go-ahead.
+
+## Testnet
+
+```bash
+OWNER=you.testnet npm run deploy:testnet
+```
+
+Deploys mock USDC, the mock Intents contract, the vault and the agent account. `npm run reset:testnet` redeploys the vault and verifier with fresh state on the same accounts (NEAR won't delete an account with large state, so the contract re-initializes under a new storage prefix).
+
+## Code-only redeploys
+
+When a fix doesn't change the contract's stored structs, redeploy the code and keep all state (deposits, shares, positions):
+
+```bash
+cd contracts/vault
+cargo near deploy build-reproducible-wasm vault.nullpoint.testnet without-init-call network-config testnet sign-with-keychain send
+```
+
+## Verifying the source
+
+The vault builds reproducibly: `contracts/vault/Cargo.toml` names the repository and a pinned Docker image (`sourcescan/cargo-near:0.22.0-rust-1.99.1`). A reproducible deploy writes the commit into the contract's NEP-330 metadata:
+
+```bash
+near contract call-function as-read-only vault.nullpoint.near contract_source_metadata json-args '{}' network-config mainnet now
+```
+
+Requirements: a clean git tree, the commit pushed to the public repository, Docker running. Then open the contract on NearBlocks and verify; SourceScan rebuilds the commit and compares code hashes. To check it yourself:
+
+```bash
+git checkout <commit from the metadata>
+cd contracts/vault && cargo near build reproducible-wasm
+# the printed "SHA-256 checksum bs58" equals the account's code_hash
+```
+
+Every later code redeploy must also be reproducible, or the contract loses its verified status.
+
+## Parameters after deploy
+
+Limits change with `set_params` (owner only, the full struct each time). Raising the mainnet cap is one transaction and no redeploy.

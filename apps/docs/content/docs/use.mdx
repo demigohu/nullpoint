@@ -1,0 +1,125 @@
+---
+title: Deposit and withdraw
+description: What you do, what you sign, what happens next, and how long it takes.
+---
+
+## Your journey
+
+<Mermaid
+  title="User journey"
+  chart={`flowchart LR
+  subgraph dep[Deposit]
+    direction TB
+    c[Connect a NEAR wallet] --> t[Testnet: get free test USDC] --> d[Review, then sign one deposit] --> s[Shares arrive in the same transaction]
+  end
+  subgraph hold[Hold]
+    direction TB
+    h[Agent hedges it on its next runs] --> w[Watch the share price on the dashboard]
+  end
+  subgraph out[Withdraw]
+    direction TB
+    r[Ask for USDC back, one transaction] --> p[Agent frees USDC, NEAR signers sign the payout] --> u[USDC in your wallet]
+  end
+  s --> h
+  w --> r`}
+/>
+
+## Deposit
+
+<Steps>
+<Step>
+**Connect a NEAR wallet** in the app. Connecting only shares your account name; nothing is signed.
+</Step>
+<Step>
+**Enter an amount and review it.** The app simulates the deposit against the contract first: how many shares you'll get, the 0.5% deposit fee, whether the vault's cap allows it. If the contract would refuse, you see why before your wallet opens.
+</Step>
+<Step>
+**Sign one transaction.** It sends USDC to the vault with `ft_transfer_call`. The contract mints your shares in the same transaction. If it can't take the deposit (paused, over the cap, or the share price is stale), the USDC comes straight back.
+</Step>
+<Step>
+**The agent puts it to work.** On its next runs it moves the USDC into the vault's Intents account, sends a third to Hyperliquid as collateral, opens the short, then buys the coin. About a minute on testnet, about 10 to 20 minutes on mainnet.
+</Step>
+</Steps>
+
+<Mermaid
+  title="A deposit, step by step"
+  chart={`sequenceDiagram
+  autonumber
+  actor U as You
+  participant T as USDC token
+  participant V as Vault contract
+  participant A as Agent
+  participant I as NEAR Intents
+  participant H as Hyperliquid
+  U->>T: ft_transfer_call(vault, amount)
+  T->>V: ft_on_transfer
+  V-->>U: shares minted at the current share price
+  A->>V: sweep
+  V->>I: USDC into the vault's Intents account
+  A->>V: sign_quote (collateral to Hyperliquid)
+  V-->>A: MPC-signed transfer
+  A->>I: submit via 1Click
+  I-->>H: collateral arrives
+  A->>H: open the short (trading key)
+  A->>V: sign_quote (buy the coin)
+  A->>I: submit via 1Click
+  I-->>I: coin arrives in the vault's account
+  A->>V: report_prices, report_position
+  V-->>V: new share price`}
+/>
+
+## Withdraw
+
+<Steps>
+<Step>
+**Choose how many shares.** The app shows what they're worth today after the 0.5% withdrawal fee.
+</Step>
+<Step>
+**Sign one transaction:** `request_withdraw`. Your shares leave your balance and the payout joins a queue. You're paid in order.
+</Step>
+<Step>
+**The agent frees the USDC.** From idle USDC if there's enough; otherwise it shrinks the short and sells some coin. Then it calls `fulfill_withdraw`: the contract prices your shares at that moment and asks NEAR's signers to sign a transfer to you.
+</Step>
+<Step>
+**The payout lands.** The agent submits it right away. About 1 to 3 minutes on testnet, about 10 to 20 on mainnet. Your withdrawal in the app shows each step, with links to the signing and payout transactions.
+</Step>
+</Steps>
+
+<Mermaid
+  title="A withdrawal, and the fallback if the agent is down"
+  chart={`sequenceDiagram
+  autonumber
+  actor U as You
+  participant V as Vault contract
+  participant A as Agent
+  participant M as NEAR Chain Signatures
+  participant I as NEAR Intents
+  U->>V: request_withdraw(shares)
+  V-->>U: shares burned, payout queued
+  A->>A: free USDC (idle, or sell coin and shrink the short)
+  A->>V: fulfill_withdraw(id)
+  V->>M: sign a transfer of USDC to you
+  M-->>V: signature stored on-chain
+  alt agent is running
+    A->>V: execute_withdraw(id)
+  else agent is down for a while
+    U->>V: execute_withdraw(id), from your own wallet
+  end
+  V->>I: submit the signed transfer
+  I-->>U: USDC in your wallet`}
+/>
+
+## If the agent is down
+
+`execute_withdraw` has no caller check. Once a payout is signed, anyone can submit it, and it can only pay the person who asked. If a signed payout waits too long (10 minutes on testnet, 30 on mainnet), the app offers a **Review and finish** button that submits it from your wallet.
+
+A payout that hasn't been signed yet does need the agent: someone has to free the USDC and ask for the signature. Your shares stay in the queue until then.
+
+## Where your money is while you wait
+
+| Moment | Where it is |
+|---|---|
+| Right after deposit | USDC in the vault contract, your shares already minted |
+| A few runs later | Coin in the vault's NEAR Intents account, collateral and short on Hyperliquid |
+| After `request_withdraw` | Still in the vault; your claim is queued and priced when it's paid |
+| After payout | USDC in your wallet |

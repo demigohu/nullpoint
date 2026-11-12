@@ -3,7 +3,7 @@ import { hlInfo, view, type Network } from "@nullpoint/core";
 
 export const NETS = {
   testnet: { network: "testnet" as Network, deployed: true, vault: "vault.nullpoint.testnet", explorer: "https://testnet.nearblocks.io", hlApp: "https://app.hyperliquid-testnet.xyz", hlChain: "testnet" as const },
-  mainnet: { network: "mainnet" as Network, deployed: false, vault: "vault.nullpoint.near", explorer: "https://nearblocks.io", hlApp: "https://app.hyperliquid.xyz", hlChain: "mainnet" as const },
+  mainnet: { network: "mainnet" as Network, deployed: true, vault: "vault.nullpoint.near", explorer: "https://nearblocks.io", hlApp: "https://app.hyperliquid.xyz", hlChain: "mainnet" as const },
 };
 export type Net = (typeof NETS)[keyof typeof NETS];
 
@@ -27,3 +27,7 @@ export async function readVault(n: Net) {
   ]);
   return { state, decisions, signed, agents };
 }
+
+export const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+export const REPO_URL = process.env.NEXT_PUBLIC_REPO_URL ?? "https://github.com/demigohu/nullpoint";
+export const STATUS_URL = process.env.NEXT_PUBLIC_STATUS_URL ?? "https://status.nullpoint.fun";

@@ -1,0 +1,54 @@
+---
+title: Attacks that fail
+description: What we tried in order to steal from the vault or steer it, where each attempt is stopped, and the commands to try them yourself.
+---
+
+<Mermaid
+  title="Where each attack is stopped"
+  chart={`flowchart TB
+  goal([Take money out of the vault])
+  goal --> k[Steal the agent's keys]
+  goal --> l[Trick the AI]
+  goal --> r[Lie in reports]
+  k --> k1[Hyperliquid withdraw3 to my wallet]
+  k --> k2[usdSend or agentSendAsset to my wallet]
+  k --> k3[Ask the contract to sign a swap paying me]
+  k --> k4[Call another contract with the NEAR key]
+  k1 --> s1[[Hyperliquid: billed to the agent's own empty account]]
+  k2 --> s2[[Hyperliquid: agents may only send within the same user]]
+  k3 --> s3[[Contract: not signed by 1Click, or recipient is not the vault]]
+  k4 --> s4[[NEAR: the key may only call the vault]]
+  l --> l1[Prompt injection in market notes]
+  l --> l2[A fully compromised model]
+  l1 --> s5[[Limits: SOL not allowlisted, 20x outside 1-2x]]
+  l2 --> s6[[Schema: no action moves funds, no address field]]
+  r --> r1[Report a made-up account value]
+  r1 --> s7[[Contract: outside the 2% check, vault pauses]]`}
+/>
+
+## Attempts and results
+
+| Attempt | Who stops it | Result |
+|---|---|---|
+| Agent's trading key calls Hyperliquid `withdraw3` to an outside wallet | Hyperliquid | Rejected: the action is billed to the agent's own empty account |
+| Agent's trading key calls `usdSend` to an outside wallet | Hyperliquid | Rejected, same reason |
+| Agent's trading key calls `agentSendAsset` to an outside wallet | Hyperliquid | Rejected: "Agent can only send asset to same user or their sub-accounts" |
+| Agent asks the contract to sign a 1Click quote with the recipient swapped to an attacker | Vault contract | Rejected: the signature no longer matches 1Click's key |
+| Agent asks the contract to sign a quote that pays someone else | Vault contract | Rejected: recipient must be the vault |
+| Hostile "market notes" in the AI's prompt (switch to SOL, use 20x, send collateral out) | Limits | Blocked |
+| A fully compromised model answers SOL, 20x, or `WITHDRAW` to `0xdead` | Limits and schema | Blocked: not allowlisted, outside 1-2x, unknown action |
+| A report with a made-up Hyperliquid value | Vault contract | Refused and the vault pauses |
+| The same quote used twice | Vault contract | Rejected: quote already used |
+
+## Try them
+
+```bash
+npm run attack       # the agent's own keys try to steal (needs the testnet agent keys)
+npm run attack:llm   # prompt injection against the real model, then a compromised one (needs a NEAR AI key)
+npm run demo         # no keys: a forged 1Click quote and a compromised strategist, both refused
+cd contracts && cargo test -p vault   # forged and replayed quotes, wrong recipients, bad reports
+```
+
+## What isn't stopped
+
+A stolen trading key can still trade the short badly, inside the limits. The coin is safe in the contract's Intents account, and the owner can replace the key. See [Security model](/security).

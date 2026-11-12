@@ -1,0 +1,27 @@
+---
+title: Risks
+description: What can go wrong, what the vault does about it, and what it can't prevent.
+---
+
+NullPoint removes the bet on price. It doesn't remove risk. Read this before putting in money you care about.
+
+| Risk | What happens | What the vault does | What it can't prevent |
+|---|---|---|---|
+| Funding turns negative | Shorts pay instead of earning | Switches to a coin that pays, or parks in USDC | Weeks with no yield, and the 0.4% cost of switching |
+| A sharp rally | The coin rises fast and the short loses margin | Watches the account every run; below 3× the maintenance margin it adds collateral or shrinks the position | A gap big enough, fast enough, can still liquidate the short. At 2x the coin would need to rise roughly 45 to 50% |
+| Hyperliquid fails | The short and its collateral live there | Nothing | The vault loses what's on Hyperliquid (about a third of it) |
+| A bridge fails | BTC and ETH in NEAR Intents are bridged tokens (`nbtc.bridge.near`, `eth.bridge.near`) | Nothing | If a bridge breaks, the coin it backs can lose its value |
+| The agent misbehaves | A stolen agent key can trade | It can't withdraw, send, or sign for the vault; the contract checks every swap | It can trade the short badly. Limits cap how much, they don't remove it |
+| The AI decides badly | It picks a bad coin at a bad time | Every answer passes fixed limits: three coins, 2x, two switches a day, one-week payback | Bad calls inside the limits |
+| The agent stops | No reports, rebalancing or payouts | Positions stay hedged where they are; signed payouts can be finished from your wallet | Unsigned withdrawals wait until it's back |
+| Wrong reported value | The agent reports the Hyperliquid side | The contract checks each report against what it expects and pauses on a larger gap | A slow drift of up to 2% per report would pass; it would show in the share-price history |
+| Unaudited code | This is a hackathon build | Mainnet is capped at $100 | Bugs nobody has found yet |
+| The owner | Can pause, change limits, and in this build upgrade the contract | No method pays the owner; fees are capped in the contract | An upgrade could change the rules |
+
+## A word on testnet
+
+Testnet uses test USDC and a stand-in for NEAR Intents and 1Click, because neither has a testnet. Nothing there is real money. Funding on Hyperliquid testnet is also unrealistic (hundreds of percent a year), so testnet numbers say nothing about what mainnet earns.
+
+## Your exit
+
+You can ask for your USDC back at any time. There's no lockup. In the worst case (the agent down for good) a payout that was already signed can be submitted by you, and the owner can pause the vault and replace the agent.

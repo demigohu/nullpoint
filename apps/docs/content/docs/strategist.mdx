@@ -1,0 +1,62 @@
+---
+title: AI strategist and limits
+description: An AI model picks the coin. Fixed limits check every answer. Both the answer and the verdict go on-chain.
+---
+
+## The rule of thumb
+
+**The AI decides, the limits constrain, the contract has the last word.**
+
+## How a decision is made
+
+<Mermaid
+  title="From market data to an on-chain decision"
+  chart={`flowchart LR
+  data[Live data per coin<br/>funding now and 8 h average,<br/>open interest, payback hours,<br/>what the vault holds] --> llm
+  subgraph tee[NEAR AI Cloud enclave]
+    llm[Model<br/>DeepSeek V4.1 Flash]
+  end
+  llm -- signed JSON answer --> sig{Signature checks out<br/>against the enclave's<br/>attestation?}
+  sig -- no, or model down --> rule[Fixed rule makes the call]
+  sig -- yes --> lim
+  rule --> lim{Limits}
+  lim -- pass --> act[Agent acts: new target coin,<br/>park, or leverage]
+  lim -- fail --> keep[Nothing changes]
+  act --> rec[report_decision: action, verdict,<br/>reason, chat id, enclave address]
+  keep --> rec`}
+/>
+
+Every 30 minutes the agent sends the model a snapshot: the latest and 8-hour-average funding for BTC, ETH and NEAR, open interest, what the vault holds and since when, and the payback time of each possible switch, computed for it. The model answers in a closed JSON schema:
+
+`{ action: HOLD | ROTATE | PARK | RESUME | SET_LEVERAGE, target?, leverage?, confidence, reasoning }`
+
+There's no field for an address or an amount. The model can't express "send money somewhere" even if it wanted to.
+
+## The limits
+
+| Limit | Value |
+|---|---|
+| Coins | BTC, ETH, NEAR only |
+| Leverage | 1x to 2x |
+| Switches | At most 2 per 24 hours |
+| Minimum hold | 6 hours per coin |
+| Payback | The extra funding (8-hour average, measured, not predicted) must repay the ~0.4% switching cost within 168 hours |
+| Confidence | At least 0.6 |
+
+An answer that fails any limit is recorded as **rejected**, with the reason, and the agent does nothing.
+
+## When the model is down
+
+A fixed rule takes over under the same limits: switch to the best-paying coin when the payback rule allows it, park in USDC when no coin pays (8-hour funding below 0%), and come back when the best coin pays more than 3% a year. Its decisions are recorded with source `rule`.
+
+## Verifiable
+
+Each decision stored on-chain carries the model's chat id and the enclave's signing address, so anyone can fetch the signed answer from NEAR AI Cloud and check it. The dashboard's activity log and [Verify it live](/verify) show the latest ones.
+
+## A real disagreement
+
+On testnet on 12 Nov we faked high NEAR funding to stage a switch. The model **refused**: NEAR's open interest on Hyperliquid testnet was only about $168k, and it judged that too thin to move into. The rule, which doesn't look at open interest, switched. Both decisions are on-chain. This is the point of putting a model above a rule: it weighs things a rule doesn't.
+
+## Attacks on the model
+
+`npm run attack:llm` hides instructions in the "market notes" the model reads (switch to SOL, use 20x, send collateral to an outside address), and then feeds the limits the answers a fully compromised model would give. Every one is blocked: SOL isn't allowlisted, 20x is outside 1-2x, and "withdraw" isn't an action. See [Attacks that fail](/attacks).

@@ -1,0 +1,39 @@
+---
+title: Status and monitoring
+description: How to tell whether the vault is running, and how the owner hears when it isn't.
+---
+
+## The status page
+
+[status.nullpoint.fun](https://status.nullpoint.fun) shows uptime for each vault and for the services it depends on, with incidents and notices. It runs on Uptime Kuma, next to the agent.
+
+## The health endpoint
+
+The web app answers `GET /api/health` with a live check of both vaults, read from the chain and Hyperliquid:
+
+| Check | Fails when | Critical |
+|---|---|---|
+| Vault running | The contract is paused | Yes |
+| Agent reporting | No accepted report for two runs plus three minutes | Yes |
+| Hedged | A coin's short and spot differ by more than the contract's band | No; it happens for a few seconds during every swap |
+| Agent has gas | Under 1 NEAR available on the agent account | Under 0.5 NEAR |
+| Trading key valid | Hyperliquid approval ends within 14 days | Once it has expired |
+
+It returns **200** when every critical check passes and **503** otherwise, with the failing checks in the body. Add `?network=mainnet` or `?network=testnet` to check one vault.
+
+```bash
+curl -s https://nullpoint.fun/api/health?network=mainnet
+```
+
+## Alerts
+
+Uptime Kuma calls the health endpoint every minute for mainnet and every few minutes for testnet, keeps the history, draws the status page, and emails the owner when a check turns red or green again. It also watches the app, the docs, 1Click, Hyperliquid, NEAR RPC and NEAR AI Cloud directly.
+
+## When something's red
+
+| Red check | What it means for depositors |
+|---|---|
+| Vault paused | Funds stay where they are. Deposits, withdrawals and swaps wait until the owner unpauses |
+| Agent not reporting | Positions stay hedged. Deposits wait for a fresh share price; signed payouts can still be finished from the app |
+| Agent out of gas | Same as not reporting, until the agent account is topped up |
+| Trading key expired | The short can't be adjusted until the owner approves the key again |

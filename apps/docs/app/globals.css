@@ -1,23 +1,59 @@
 /* Same design system as the app (apps/web/DESIGN.md): duotone tokens, type, chips, panels, buttons. */
 @import "../../web/app/globals.css";
+@import "fumadocs-ui/css/neutral.css";
+@import "fumadocs-ui/css/preset.css";
 
-/* Long-form reading. */
-.prose p, .prose li { font-size: 16px; line-height: 1.6; max-width: 68ch; }
-.prose p + p { margin-top: 1rem; }
-.prose h2 { font-variation-settings: "wdth" 112; font-weight: 800; font-size: clamp(1.5rem, 2.2vw, 2.2rem); letter-spacing: -0.035em; line-height: 1.05; margin-top: 3rem; margin-bottom: 1rem; }
-.prose h3 { font-weight: 700; font-size: 1.15rem; margin-top: 2rem; margin-bottom: 0.5rem; }
-.prose ul { list-style: none; display: grid; gap: 0.5rem; margin: 1rem 0; }
-.prose ul > li { padding-left: 1.4em; position: relative; }
-.prose ul > li::before { content: "+"; position: absolute; left: 0; font-family: var(--font-mono); }
-.prose ol { counter-reset: n; display: grid; gap: 0.75rem; margin: 1rem 0; }
-.prose ol > li { counter-increment: n; padding-left: 2.2em; position: relative; }
-.prose ol > li::before { content: counter(n, decimal-leading-zero); position: absolute; left: 0; font-family: var(--font-mono); font-size: 12px; top: 0.3em; }
-.prose code { font-family: var(--font-mono); font-size: 0.88em; overflow-wrap: anywhere; }
-.prose li { min-width: 0; }
-.prose pre { max-width: 100%; font-family: var(--font-mono); font-size: 13px; background: var(--t); color: var(--f); padding: 1rem; overflow-x: auto; overscroll-behavior-x: contain; margin: 1rem 0; line-height: 1.5; }
-.prose a { text-decoration: underline; text-underline-offset: 3px; }
-.prose table { width: 100%; font-size: 14px; margin: 1rem 0; border-collapse: collapse; }
-.prose th { text-align: left; font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.15em; font-weight: 400; padding: 0.5rem 0.75rem 0.5rem 0; }
-.prose td { border-top: 1px solid var(--t); padding: 0.6rem 0.75rem 0.6rem 0; vertical-align: top; }
+/* Fumadocs reads its colors from these; map them onto the two DESIGN.md colors (sign --t on ground --f). */
+:root,
+.dark {
+  --color-fd-background: var(--f);
+  --color-fd-foreground: var(--t);
+  --color-fd-muted: color-mix(in srgb, var(--t) 7%, var(--f));
+  --color-fd-muted-foreground: color-mix(in srgb, var(--t) 72%, var(--f));
+  --color-fd-popover: var(--f);
+  --color-fd-popover-foreground: var(--t);
+  --color-fd-card: var(--f);
+  --color-fd-card-foreground: var(--t);
+  --color-fd-border: color-mix(in srgb, var(--t) 40%, var(--f));
+  --color-fd-primary: var(--t);
+  --color-fd-primary-foreground: var(--f);
+  --color-fd-secondary: color-mix(in srgb, var(--t) 10%, var(--f));
+  --color-fd-secondary-foreground: var(--t);
+  --color-fd-accent: color-mix(in srgb, var(--t) 16%, var(--f));
+  --color-fd-accent-foreground: var(--t);
+  --color-fd-ring: var(--t);
+  --fd-layout-width: 1400px;
+}
 
-@media (max-width: 640px) { .prose table { display: block; overflow-x: auto; overscroll-behavior-x: contain; } }
+/* DESIGN.md: radius is 0 everywhere. The app's CSS removes the radius scale; Fumadocs' own CSS needs
+   the names, so they come back here, all at 0. */
+@theme {
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+  --radius-2xl: 0;
+  --radius-3xl: 0;
+  --radius-4xl: 0;
+}
+*,
+*::before,
+*::after {
+  border-radius: 0 !important;
+}
+
+/* Mermaid diagrams: scroll sideways on phones instead of shrinking text to nothing. */
+.diagram {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border: 1px solid var(--t);
+  padding: 1rem;
+  margin: 1.5rem 0;
+}
+.diagram svg {
+  margin: 0 auto;
+  display: block;
+  /* Fits the column on desktop; never narrower than this, so on a phone it scrolls instead of shrinking. */
+  min-width: 560px;
+}

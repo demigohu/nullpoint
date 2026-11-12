@@ -1,0 +1,44 @@
+---
+title: FAQ
+description: Short answers to the questions people ask first.
+---
+
+### Is my money safe?
+
+Your USDC sits under a smart contract on NEAR, and only that contract can sign money out of the vault's accounts. The agent that runs it can trade but can't withdraw. It's still new code that hasn't been audited, so only put in what you're fine testing with. Mainnet is capped at $100 for that reason.
+
+### Where does the yield come from?
+
+From funding: the hourly fee that traders betting on prices going up pay to traders betting against them. The vault is always on the receiving side, with an equal amount of the coin held so price swings cancel. [How you earn](/earn) has the details.
+
+### How much can I earn?
+
+It moves with funding. BTC funding on Hyperliquid has mostly run 5 to 15% a year, and about two thirds of the vault earns it, so think single digits a year before fees. Some weeks it earns nothing.
+
+### Can I lose money?
+
+Yes. Funding can turn negative, Hyperliquid or a bridge can fail, a very sharp rally can hurt the short, and the fees mean a short stay loses money. See [Risks](/risks).
+
+### When can I get my money back?
+
+Any time. Usually within 1 to 3 minutes on testnet and 10 to 20 on mainnet, where the agent runs every 10 minutes. If a signed payout is stuck, the app lets you finish it yourself.
+
+### Why does my value show "down since" right after depositing?
+
+The 0.5% deposit fee and the first transfers' costs come out at the start. The app shows the deposit fee separately so you can see what's fee and what's performance.
+
+### Which coin is the vault holding?
+
+The dashboard shows it. The AI picks between BTC, ETH and NEAR, or parks in USDC when none of them pays. The whole site changes color with the coin: orange for BTC, blue on white for ETH, green for NEAR, white for parked.
+
+### Who holds the keys?
+
+The contract does, through NEAR Chain Signatures. The agent has a trading key on Hyperliquid and a NEAR key that can only call the vault. The owner can pause the vault, change limits and, in this hackathon build, upgrade the contract. No method sends the vault's money to the owner; NullPoint's only income is the 5% performance fee, as shares.
+
+### Why NEAR?
+
+Three things only NEAR gives in one place: a contract that can sign for other chains (Chain Signatures), a place to hold and swap many assets under one account (NEAR Intents), and AI inference in sealed enclaves with signed answers (NEAR AI Cloud). Together they let a contract own an exchange account and a bot run it without holding the money.
+
+### Is this testnet or mainnet?
+
+Both. Testnet is for trying it with free test USDC. Mainnet runs with real USDC, capped at $100. Switch between them in the app's account menu.

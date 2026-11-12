@@ -1,0 +1,51 @@
+---
+title: Fees
+description: Three fees, where each one goes, and the costs nobody can avoid.
+---
+
+## The three fees
+
+| Fee | How much | Goes to | Why |
+|---|---|---|---|
+| Deposit | 0.5% of what you put in | Stays in the vault | Pays for the swap, the collateral transfer and the short that your own deposit needs |
+| Withdrawal | 0.5% of what you take out | Stays in the vault | Pays for selling your part of the coin and closing its short |
+| Performance | 5% of gains, only above the previous high | NullPoint's treasury, as new shares | How the project earns |
+
+The same fees apply on testnet and mainnet. The contract caps them: deposit and withdrawal fees can never go above 1%, the performance fee never above 20%, whatever the owner sets.
+
+### Why deposit and withdrawal fees stay in the vault
+
+Every deposit costs real money to put to work: a 1Click swap (about 0.3%), a collateral transfer, Hyperliquid trading fees. Without a fee, those costs would come out of everyone else's shares. People already in the vault would pay for each newcomer, and someone could deposit and withdraw over and over to drain them. The fee makes each person pay for their own trades.
+
+### The performance fee
+
+The vault remembers its highest share price (the **high-water mark**). When a report shows the share price above it, the contract mints new shares to the treasury worth 5% of the gain, then raises the mark. If the price dips and climbs back, there's no fee until it passes the old high. Deposit and withdrawal fees raise the mark too, so the performance fee is never charged on money that only covered swap costs.
+
+## An example
+
+You deposit $1,000.
+
+| | Amount |
+|---|---|
+| Deposit fee (0.5%) | $5.00 stays in the vault |
+| Your shares are worth | $995.00 |
+| A month later the vault has earned 0.8% | your shares are worth about $1,003.00 |
+| Performance fee (5% of that $8 gain) | about $0.40 |
+| You withdraw everything | about $1,002.60 before the withdrawal fee |
+| Withdrawal fee (0.5%) | about $5.01 |
+| You receive | about $997.59 |
+
+Over a short stay the round-trip fees outweigh the yield. The vault is built for holding weeks or months.
+
+## Costs nobody can avoid
+
+These aren't fees anyone collects. They're what the venues charge.
+
+| Cost | Size | Who pays |
+|---|---|---|
+| Switching coins (swap ~0.3% plus closing and opening shorts) | about 0.4% of what's moved | All shareholders; it's a shared strategy decision, so the agent only switches when it pays back within a week |
+| Collateral to Hyperliquid through 1Click (mainnet) | about 0.3 USDC per transfer | The vault |
+| Collateral back from Hyperliquid (mainnet) | 1 USDC charged by Hyperliquid plus 0.2 USDC by 1Click per transfer | The vault; the agent only does it in transfers of 20 USDC or more, and pays small withdrawals by selling coin instead |
+| NEAR gas for your own transactions | under 0.01 NEAR, mostly refunded | You |
+
+On a small vault those flat transfer costs show up as a visible dip in the share price. They're why the mainnet agent moves collateral in large steps.

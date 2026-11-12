@@ -1,0 +1,33 @@
+---
+title: How you earn
+description: Where the yield comes from, why it exists, and when it stops.
+---
+
+## Funding, in plain words
+
+On Hyperliquid people trade **perpetual futures**: bets on a coin's price that never expire. Most traders bet on prices going up, often with borrowed money. That pushes the futures price above the real price.
+
+To pull the two back together, the exchange makes the crowded side pay the other side every hour. That payment is **funding**. When more people bet on up, the people betting on up pay the people betting on down.
+
+NullPoint always sits on the paid side: it bets on down (a **short**). On its own a short would lose money when the price rises, so the vault also holds the same amount of the coin. The two cancel. Funding is what's left.
+
+## How much
+
+It moves with the market. On Hyperliquid mainnet, BTC funding has mostly run between 5% and 15% a year, with spikes higher. The dashboard shows the live rate for each coin, and the landing page shows a 30-day simulation on real Hyperliquid data.
+
+Only part of your money earns it. About two thirds buys the coin and one third is collateral for the short, so a 9% funding rate on the short works out to roughly 6% a year on the whole deposit, before fees.
+
+## Where you see it
+
+You hold **shares**. The vault's total value divided by all shares is the **share price**. When funding arrives, the vault's value rises and so does the share price. Your number of shares doesn't change; each one is worth a bit more.
+
+The contract records the share price on a schedule (every 10 minutes on testnet, every 30 on mainnet), and the dashboard charts it.
+
+## When it stops
+
+- **Funding turns negative.** Then shorts pay instead of earning. The agent switches to a coin that still pays, or sells everything and waits in USDC (this is called **parking**). Some weeks the vault earns nothing.
+- **Switching coins costs money**, about 0.4% of what's moved. The agent only switches when the extra funding pays that back within a week. See [AI strategist and limits](/strategist).
+
+## Why a coin and a short, and not just a short
+
+A short alone would be a bet that prices fall. Holding the coin as well makes the position **delta-neutral**: the vault's value doesn't depend on the price. People call this a basis trade. Funds run it all the time, usually with their own exchange keys, and you trust the fund. Here the exchange account belongs to a smart contract, and the bot that trades can't take the money out. [Security model](/security) explains how.
