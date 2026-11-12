@@ -287,10 +287,13 @@ fn entry_and_exit_fees_stay_in_the_vault() {
     // A second depositor pays their own entry: alice's shares are worth what she put in less hers.
     let _ = v.ft_on_transfer(accounts(3), U128(10_000_000), String::new());
     assert_eq!(v.get_shares(accounts(3)).0, 9_900_250); // 9.95 USDC at 10/9.95 per share
+    let h = v.get_holding(accounts(3));
+    assert_eq!((h.deposited.0, h.entry_cost.0), (10_000_000, 50_000));
     let price_before = v.snapshot.as_ref().unwrap().nav.0 * PRICE_ONE / v.total_shares;
     // Leaving pays 0.5% of the value out; what stays lifts the share price for everyone else.
     ctx(accounts(2), 2_000);
     let id = v.request_withdraw(U128(9_950_000));
+    assert_eq!(v.get_holding(accounts(2)).entry_cost.0, 0); // left with all shares, so none of the cost stays
     ctx(accounts(1), 2_000);
     v.snapshot.as_mut().unwrap().ms = 2_000;
     v.snapshot.as_mut().unwrap().usdc_in_verifier = U128(20_000_000);

@@ -36,6 +36,7 @@ enum Key {
     Decisions(u8),
     NavHistory(u8),
     Deposited(u8),
+    EntryCost(u8),
 }
 
 #[near(serializers = [json, borsh])]
@@ -128,6 +129,8 @@ pub struct Withdrawal {
 pub struct Holding {
     pub shares: U128,
     pub deposited: U128,
+    /// The part of `deposited` that went to the entry fee, so the app can show it apart from earnings.
+    pub entry_cost: U128,
 }
 
 #[near(serializers = [json, borsh])]
@@ -209,6 +212,8 @@ pub struct Contract {
     /// USDC each account has put in and not yet taken out (pro rata on withdrawals): its cost basis,
     /// so the app can show what the shares earned.
     deposited: LookupMap<AccountId, u128>,
+    /// Entry fees each account paid, reduced pro rata on withdrawals like `deposited`.
+    entry_cost: LookupMap<AccountId, u128>,
     total_shares: u128,
     /// Share price × PRICE_ONE up to which gains have already paid the performance fee.
     high_water_mark: u128,
@@ -278,6 +283,7 @@ impl Contract {
             paused: false,
             shares: LookupMap::new(Key::Shares(g)),
             deposited: LookupMap::new(Key::Deposited(g)),
+            entry_cost: LookupMap::new(Key::EntryCost(g)),
             total_shares: 0,
             high_water_mark: 0,
             pending_usdc: 0,
@@ -354,7 +360,8 @@ impl Contract {
         require!(!self.paused, "paused");
         let amount = amount.0;
         // The entry fee buys no shares and stays in the vault.
-        let net = amount - bps(amount, self.params.entry_fee_bps);
+        let fee = bps(amount, self.params.entry_fee_bps);
+        let net = amount - fee;
         let shares = if self.total_shares == 0 {
             self.high_water_mark = 0; // an emptied vault starts over
             net
@@ -372,6 +379,8 @@ impl Contract {
         let balance = self.shares.get(&sender_id).copied().unwrap_or(0);
         let basis = self.deposited.get(&sender_id).copied().unwrap_or(0);
         self.deposited.insert(sender_id.clone(), basis + amount);
+        let paid = self.entry_cost.get(&sender_id).copied().unwrap_or(0);
+        self.entry_cost.insert(sender_id.clone(), paid + fee);
         self.shares.insert(sender_id, balance + shares);
         self.total_shares += shares;
         self.pending_usdc += amount;
@@ -576,6 +585,8 @@ impl Contract {
         require!(shares.0 > 0 && shares.0 <= balance, "not enough shares");
         let basis = self.deposited.get(&account).copied().unwrap_or(0);
         self.deposited.insert(account.clone(), basis - basis * shares.0 / balance);
+        let paid = self.entry_cost.get(&account).copied().unwrap_or(0);
+        self.entry_cost.insert(account.clone(), paid - paid * shares.0 / balance);
         self.shares.insert(account.clone(), balance - shares.0);
         self.withdrawals.push(Withdrawal { account, shares, usdc: U128(0), status: "queued".into(), signed_id: None });
         self.withdrawals.len() as u64 - 1
@@ -685,6 +696,7 @@ impl Contract {
         Holding {
             shares: U128(self.shares.get(&account_id).copied().unwrap_or(0)),
             deposited: U128(self.deposited.get(&account_id).copied().unwrap_or(0)),
+            entry_cost: U128(self.entry_cost.get(&account_id).copied().unwrap_or(0)),
         }
     }
 

@@ -26,8 +26,8 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
   const { signedAccountId, signIn, viewFunction } = useNearWallet();
   const [usdc, setUsdc] = useState<bigint | null>(null);
   const [shares, setShares] = useState<bigint | null>(null);
-  /** USDC put in and not yet taken out (the contract's cost basis); null on a contract without it. */
-  const [basis, setBasis] = useState<bigint | null>(null);
+  /** USDC put in and not yet taken out (the contract's cost basis) and the entry fees inside it; null on a contract without it. */
+  const [basis, setBasis] = useState<{ deposited: bigint; entryCost: bigint } | null>(null);
   const [chain, setChain] = useState<ChainState | null>(null);
   const [mine, setMine] = useState<Withdrawal[]>([]);
   const [tab, setTab] = useState<"deposit" | "withdraw">("deposit");
@@ -50,8 +50,8 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
     const r = await read();
     setUsdc(r.usdc);
     setShares(r.shares);
-    const h = (await viewFunction({ contractId: net.vault, method: "get_holding", args: { account_id: signedAccountId } }).catch(() => null)) as { deposited: string } | null;
-    setBasis(h ? BigInt(h.deposited) : null);
+    const h = (await viewFunction({ contractId: net.vault, method: "get_holding", args: { account_id: signedAccountId } }).catch(() => null)) as { deposited: string; entry_cost?: string } | null;
+    setBasis(h ? { deposited: BigInt(h.deposited), entryCost: BigInt(h.entry_cost ?? 0) } : null);
     setChain(r.state);
     const w = (await viewFunction({ contractId: net.vault, method: "get_withdrawals", args: { from: "0", limit: Math.max(r.state.withdrawal_count, withdrawalCount) + 20 } })) as [number, Omit<Withdrawal, "id">][];
     const own = w.map(([id, x]) => ({ id, ...x })).filter((x) => x.account === signedAccountId).reverse();
@@ -136,6 +136,7 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
           { label: "Wallet USDC", before: fmt(usdc), after: fmt(usdc - depositUnits) },
           { label: "Your shares", before: fmt(shares), after: fmt(shares + out) },
           { label: "Your value", before: `$${fmt(Number(shares) * p, 6)}`, after: `$${fmt(Number(shares + out) * p, 6)}` },
+          { label: "Entry cost (stays in the vault)", before: "0.00", after: fmt(cost) },
         ],
       };
     },
@@ -234,11 +235,15 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
         <p className="num mt-3 text-[14px]">
           {shares === null ? "…" : fmt(shares)} <Term k="share">shares</Term> × ${sharePrice.toFixed(4)} · in your wallet: {usdc === null ? "…" : fmt(usdc)} USDC
         </p>
-        {basis !== null && basis > 0n && shares !== null && (() => {
-          const earned = Number(shares) * sharePrice - Number(basis);
+        {basis !== null && basis.deposited > 0n && shares !== null && (() => {
+          // Earnings count from the money that went to work: the entry cost is shown on its own line.
+          const working = Number(basis.deposited - basis.entryCost);
+          const earned = Number(shares) * sharePrice - working;
           return (
             <p className="num mt-2 text-[14px]">
-              You put in ${fmt(basis)} · {earned >= 0 ? "earned" : "down"} <b>${fmt(Math.abs(earned), 6)}</b> ({((earned / Number(basis)) * 100).toFixed(2)}%)
+              You put in ${fmt(basis.deposited)}
+              {basis.entryCost > 0n && <> · <Term k="entry cost">entry cost</Term> ${fmt(basis.entryCost)}</>} · {earned >= 0 ? "earned" : "down"} since{" "}
+              <b>${fmt(Math.abs(earned), 6)}</b> ({((earned / working) * 100).toFixed(2)}%)
             </p>
           );
         })()}
