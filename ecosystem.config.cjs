@@ -5,8 +5,11 @@
 const agent = (name, envFile) => ({
   name,
   cwd: "./apps/agent",
-  script: "src/index.ts",
-  node_args: `--env-file=../../${envFile}`,
+  // pm2's own loader require()s the script, which can't load an ES module with top-level await,
+  // so pm2 starts this node binary directly, the same as `npm run agent`.
+  script: process.execPath,
+  args: [`--env-file=../../${envFile}`, "src/index.ts"],
+  interpreter: "none",
   autorestart: true,
   restart_delay: 10_000,
   max_memory_restart: "300M",
