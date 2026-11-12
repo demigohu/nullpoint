@@ -39,6 +39,9 @@ const MARGIN_TOL_USDC = 5_000_000n; // margin drift tolerated before moving USDC
 // Mainnet Hyperliquid charges a flat 1 USDC to send to a fresh 1Click deposit address (1Click adds 0.2),
 // so margin comes back only in pulls where that is small; withdrawals sell spot (~0.3%) instead.
 const HL_PULL_MIN_USDC = MAINNET ? 20_000_000n : MARGIN_TOL_USDC;
+// 1Click's flat ~0.3 USDC on a margin transfer plus 1% slippage must stay under the contract's 5%
+// margin_slippage_bps, so mainnet sends margin in transfers of at least 10 USDC.
+const MARGIN_SEND_MIN_USDC = MAINNET ? 10_000_000n : MARGIN_TOL_USDC;
 const PRICE_SAMPLE_USDC = 1_000_000n; // quote ~1 USDC worth of each asset for pricing
 const ROTATION_COST_BPS = 40; // swap (~30 bps) + closing and opening shorts (~2 x 4.5 bps)
 const STRATEGIST_EVERY_MS = Number(process.env.STRATEGIST_INTERVAL_MIN ?? 30) * 60_000;
@@ -281,12 +284,16 @@ async function cycle() {
   const [meta, ctxs] = await retry(() => info.metaAndAssetCtxs());
   const mark = (coin: string) => Number(ctxs[meta.universe.findIndex((u) => u.name === coin)]!.markPx);
   const reportPrices = async () => {
-    const quotes = await Promise.all(
+    const results = await Promise.allSettled(
       ASSETS.map((a) => {
         const amount = (PRICE_SAMPLE_USDC * 10n ** BigInt(a.decimals)) / BigInt(Math.round(mark(a.hlCoin) * 1e6));
         return oneclick.quote({ dry: true, swapType: "EXACT_INPUT", slippageTolerance: 100, originAsset: a.tokenId, destinationAsset: usdcToken, amount: amount.toString(), deadline: new Date(Date.now() + 10 * 60_000).toISOString(), ...side });
       }),
     );
+    // 1Click sometimes stops quoting one pair for a while; price the rest. The contract only needs
+    // fresh prices for coins the vault holds, and drops (doesn't pause on) a report missing one.
+    const quotes = results.flatMap((r, i) => (r.status === "fulfilled" ? [r.value] : (log(`no ${ASSETS[i]!.symbol} price this run: ${String(r.reason).slice(0, 120)}`), [])));
+    if (!quotes.length) throw new Error("1Click returned no price quotes");
     await agentCall("report_prices", { quotes: quotes.map((r) => ({ message: msg(r), signature: r.signature })) });
     return Date.now();
   };
@@ -397,7 +404,7 @@ async function cycle() {
       const usd = value <= cap ? value : value - cap >= STRAY_MIN_USDC ? cap : value - STRAY_MIN_USDC;
       const amount = usd === value ? balances[stray + 1]! : (balances[stray + 1]! * usd) / value;
       log(`moved ${ASSETS[stray]!.symbol} -> ${p.target ?? "USDC"} (sign tx ${await moveViaQuote({ originAsset: ASSETS[stray]!.tokenId, destinationAsset: targetToken, amount: amount.toString(), ...swapSlip })})`);
-    } else if (hlValue + MARGIN_TOL_USDC < marginTarget && idle >= MARGIN_TOL_USDC) {
+    } else if (hlValue + MARGIN_TOL_USDC < marginTarget && min(idle, marginTarget - hlValue) >= MARGIN_SEND_MIN_USDC) {
       const amount = min(min(idle, marginTarget - hlValue), cap);
       log(`sent ${Number(amount) / 1e6} USDC margin to Hyperliquid (sign tx ${await moveViaQuote({ originAsset: usdcToken, destinationAsset: hlUsdc, amount: amount.toString(), slippageTolerance: 100, ...side, recipientType: "DESTINATION_CHAIN" })})`);
     } else if (ti >= 0 && usdValue(ti) + MIN_TRADE_USDC < spotTarget && idle >= MIN_TRADE_USDC) {

@@ -344,7 +344,17 @@ Toggle testnet/mainnet di semua halaman (default lewat `NEXT_PUBLIC_DEFAULT_NET`
 - **Skala withdraw:** sampai 5 per siklus, FIFO, likuiditas dikumpulkan khusus untuk antrean.
 - **Selisih hedge kecil:** order IOC bisa terisi sebagian (terlihat di testnet: short 0,00022 BTC terisi 0,0002), meninggalkan selisih di luar band tapi di bawah minimum order $10. Akibatnya agent berhenti report dan NAV basi menahan deposit. Langkah hedge kini menutup selisih seperti itu dengan dua order: short sebesar selisih + satu order minimum, lalu buy back order minimum itu. Kaki short selalu jalan duluan.
 - **Leverage venue ≠ leverage vault:** leverage ekonomi (2x) ditentukan pembagian dana (margin = equity / (L+1)). Setelan leverage Hyperliquid hanya menentukan initial margin per order. Kalau disetel sama dengan L, margin terpakai 100% dan order apa pun ditolak ("Insufficient margin"). Agent menyetel min(5x, maks aset). Risiko likuidasi tidak berubah karena mode cross diukur dari maintenance margin terhadap nilai akun, dan tetap dijaga aturan darurat margin (< 3× maintenance).
-- **Deploy:** `ecosystem.config.cjs` (pm2, autorestart), dua proses (testnet + mainnet). Monitoring yang disarankan: endpoint health yang gagal bila NAV basi atau vault pause, dipantau uptime checker.
+- **Deploy:** `ecosystem.config.cjs` (pm2, autorestart), dua proses (testnet + mainnet) di VPS. Web dan docs di Vercel (`nullpoint.fun`, `docs.nullpoint.fun`).
+- **Monitoring (§6.9).**
+- **Harga per aset:** 1Click kadang berhenti memberi quote untuk satu pasangan (13 Nov, mainnet: "Quoting for this pair is not available"). Agent melaporkan harga aset yang berhasil saja; kontrak hanya butuh harga segar untuk aset yang dipegang.
+- **Ukuran minimum di mainnet:** kirim margin ≥ $10 (biaya tetap 1Click ~0.3 + slippage 1% harus < `margin_slippage_bps` 5%; 13 Nov agent mencoba $4.8 dan ditolak kontrak tiap siklus), tarik margin ≥ $20 (G-N).
+
+### 6.9 Monitoring dan status
+
+- `GET /api/health` di `apps/web` membaca kedua vault langsung dari chain dan Hyperliquid: vault jalan (tidak pause), agent melapor (laporan terakhir < 2 siklus + 3 menit), hedge dalam band kontrak, NEAR agent bebas (kritis < 0.5), key trading Hyperliquid masih berlaku. **200** bila semua check kritis lolos, **503** bila tidak. `?network=mainnet|testnet` untuk satu vault. Hedge yang meleset hanya peringatan (selalu meleset beberapa detik di tiap swap).
+- **Uptime Kuma** (Docker di VPS yang sama dengan agent) memanggil endpoint itu tiap 60 detik (mainnet) / 2–5 menit (testnet), menyimpan riwayat, menggambar bar uptime dan incident di `status.nullpoint.fun` (custom CSS mengikuti DESIGN.md), dan mengirim **email** lewat SMTP saat down/pulih. Monitor lain: app dan docs (ke file statis seperti `/icon.svg`, bukan halaman yang dirender server, supaya hemat kuota Vercel), 1Click, Hyperliquid, NEAR RPC, NEAR AI Cloud (langsung dari VPS).
+- Kuota Vercel dari Kuma: ±86 ribu panggilan/bulan, CPU aktif < 1 jam (kebanyakan menunggu RPC), jauh di bawah batas Hobby.
+- Batasan: riwayat dimulai saat Kuma dipasang; Kuma satu mesin dengan agent, jadi VPS mati = monitor ikut mati.
 
 ## 7. Risiko dan model ancaman
 
@@ -424,7 +434,7 @@ Catatan: leverage default Hyperliquid 20x cross, jadi agent wajib `updateLeverag
 | Sen 10 Nov | Riset + spike gate A–J | ✅ |
 | Sel 11 Nov | Testnet: kontrak + mock + core, agent (alokasi, rotasi, PARK, withdraw batch, strategist LLM), frontend 4 halaman, demo/attack/simulate, keandalan agent (near-kit, key terbatas, jurnal, lock, hedge lebih dulu) | ✅ (regresi PARK → RESUME lulus 11 Nov) |
 | Rab 12 Nov | Redesign frontend, rename keeper → agent, dialog transaksi, dashboard interaktif, modal per akun, tes integrasi sandbox, `npm test` di root, fee (§6.1), agent mode mainnet, perbaikan keandalan (§6.8) | ✅ |
-| Kam 13 Nov | Verifikasi kontrak testnet, migrasi mainnet (§12). Belum: agent di VPS (pm2), hosting web, monitoring pause, README | ✅ migrasi |
+| Kam 13 Nov | Verifikasi kontrak testnet, migrasi mainnet (§12), rotasi BTC → NEAR di testnet (G5), withdraw parsial mainnet (G11), `/api/health` (§6.9). Belum: VPS (agent + Uptime Kuma), hosting Vercel, docs Fumadocs, README | ✅ migrasi |
 | Jum 14 Nov | Video, post X, uji di clone bersih, submit | |
 
 **Aturan migrasi:** mainnet tidak disentuh sampai regresi testnet lulus. Setiap tx mainnet minta konfirmasi owner.
@@ -457,8 +467,9 @@ Catatan: leverage default Hyperliquid 20x cross, jadi agent wajib `updateLeverag
 | Deposit 44 USDC → sweep ke Intents | `G5cmNQxcqLA2sYy4L5xQGV8VjgqxpThbz31TxGfzWjEb` |
 | Tarik margin 5.76 USDC untuk withdraw #0 (biaya Hyperliquid 1 USDC, G-N) | `6yWgxsy7tm2MFh1dmBV5T6JKCNgX8krY88oVQic3pCMK` |
 | `set_params`: `dust_usdc` 1.5 USDC | `HcRCVcpSZo37TSt6ZQ4ZqfAvnKg7WdJP7CdDRkH1YJf1` |
+| Withdraw #0 dibayar: 5 share → 4.81 USDC ke `nullpoint.near` | `8ViwcjoZWNkZmdWRsywVop1GjxAvRftwP4p8UBdcW3rj` |
 | Margin 14.77 USDC ke Hyperliquid (`sign_quote`) | `G9ManbtAdVcFvedKdRg4VAbcXueZg9TRfZPFpwDKSwD4` |
 | `approveAgent` lewat MPC | `BWsqw7CcbZ54rQpRhtAxXY85kYuf6NMsQQu3QP7BqsaX` |
 | Short 0.0004 BTC (Hyperliquid oid `603051969380`) lalu beli BTC 29.32 USDC (`sign_quote`) | `6Q4Yuh5NCyGcyGjgPngXxPTUk7cPqUVuiAWDuWygTork` |
 
-Hasil: NAV 43.77 USDC, spot 0.00040764 nBTC lawan short 0.0004 BTC, leverage ~2x, tidak pause. Belum: withdraw parsial mainnet (bagian G11).
+Hasil: NAV 43.77 USDC, spot 0.00040764 nBTC lawan short 0.0004 BTC, leverage ~2x, tidak pause. Withdraw parsial mainnet (G11) selesai 13 Nov dalam ±8 menit. Funding (bagian terakhir G11) terlihat seiring waktu di riwayat NAV.
