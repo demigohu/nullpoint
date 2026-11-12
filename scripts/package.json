@@ -10,6 +10,7 @@
     "simulate:strategy": "node --env-file-if-exists=../.env simulate-strategy.ts",
     "e2e:testnet": "node e2e-testnet.ts",
     "deploy:testnet": "bash deploy-testnet.sh",
+    "deploy:mainnet": "bash deploy-mainnet.sh",
     "reset:testnet": "node reset-testnet.ts"
   },
   "dependencies": {
