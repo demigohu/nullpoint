@@ -842,7 +842,9 @@ impl Contract {
                 self.account_value as i128 + (self.margin_net - margin_then) + price_effect
             }
         };
-        let base = short_value.max(self.account_value);
+        // Scaled to the larger of the old and the expected account: after a big margin transfer into a
+        // near-empty account, the solver delivering more than the quote's minimum isn't a 1% move of $0.
+        let base = short_value.max(self.account_value).max(expected.max(0) as u128);
         let tolerance = (bps(base, p.max_report_drift_bps) + p.dust_usdc.0) as i128;
         if (account_value as i128 - expected).abs() > tolerance {
             return Err(format!("account value {account_value} outside expected {expected} ± {tolerance}"));

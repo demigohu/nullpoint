@@ -338,3 +338,18 @@ fn owner_cannot_raise_fees_past_the_caps() {
     ctx(accounts(0), 1_000);
     v.set_params(Params { performance_fee_bps: 2_001, ..v.params.clone() });
 }
+
+#[test]
+fn margin_arriving_above_the_quote_minimum_is_not_a_violation() {
+    // Testnet regression: 68.66 USDC sent, quote minimum 67.77, 68.46 arrived in an account that held
+    // 0.01. The tolerance was 1% of the old 0.01 plus dust (0.5) and the vault paused itself.
+    let mut v = vault();
+    ctx(accounts(1), 1_000);
+    v.account_value = 10_000;
+    v.last_report = Some((0, v.assets.iter().map(|a| (a.price_in, a.price_out)).collect()));
+    v.margin_net = 67_769_479;
+    let ok = v.check_and_value(&[], 68_464_020, &[U128(0), U128(0), U128(0)]);
+    assert!(ok.is_ok(), "{ok:?}");
+    // A report far outside what the transfer explains still pauses.
+    assert!(v.check_and_value(&[], 75_000_000, &[U128(0), U128(0), U128(0)]).is_err());
+}
