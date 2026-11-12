@@ -40,8 +40,11 @@ function describeSwap(sw: NonNullable<Signed["swap"]>, cfg: Assets): Pick<Activi
   const hlUsdc = { symbol: "USDC", decimals: 8 };
   const from = sw.from === cfg.hl_usdc_asset ? hlUsdc : token(sw.from, cfg.usdc_token_id);
   const to = sw.to === cfg.hl_usdc_asset ? hlUsdc : token(sw.to, cfg.usdc_token_id);
-  const give = `${fmt(sw.amount_in, from.decimals)} ${from.symbol}`;
-  const get = `${fmt(sw.min_out, to.decimals)} ${to.symbol}`;
+  // Hyperliquid USDC has 8 decimals; dollars read best at cents, coins at full precision.
+  const show = (raw: string, t: { symbol: string; decimals: number }) =>
+    `${(Number(raw) / 10 ** t.decimals).toLocaleString(undefined, { maximumFractionDigits: t.symbol === "USDC" ? 2 : 8 })} ${t.symbol}`;
+  const give = show(sw.amount_in, from);
+  const get = show(sw.min_out, to);
   const fields: [string, string][] = [["Paid", give], ["Received at least", get]];
   if (sw.to === cfg.hl_usdc_asset)
     return { category: "collateral", title: "Collateral sent to Hyperliquid", text: `Sent ${give} to Hyperliquid as collateral for the short.`, fields };
