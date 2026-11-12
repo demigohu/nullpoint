@@ -96,11 +96,12 @@ INIT=$(cat <<EOF
 }
 EOF
 )
+# The vault is built reproducibly (Docker, clean git tree) so NearBlocks can verify its source.
 if [ -n "${REINIT_GENERATION:-}" ]; then
-  (cd contracts/vault && cargo near deploy build-non-reproducible-wasm "vault.$OWNER" \
+  (cd contracts/vault && cargo near deploy build-reproducible-wasm "vault.$OWNER" \
     with-init-call reinit json-args "{\"generation\":$REINIT_GENERATION,${INIT#\{}" prepaid-gas '30.0 Tgas' attached-deposit '0 NEAR' $NET $SIGN)
 else
-  has_code "vault.$OWNER" && echo "deployed: vault.$OWNER" || (cd contracts/vault && cargo near deploy build-non-reproducible-wasm "vault.$OWNER" \
+  has_code "vault.$OWNER" && echo "deployed: vault.$OWNER" || (cd contracts/vault && cargo near deploy build-reproducible-wasm "vault.$OWNER" \
     with-init-call new json-args "$INIT" prepaid-gas '30.0 Tgas' attached-deposit '0 NEAR' $NET $SIGN)
 fi
 
