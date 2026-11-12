@@ -123,7 +123,7 @@ export default async function Landing() {
             </ul>
             <p className="num mt-8 text-[13px]">
               Run the attack yourself: <code>npm run attack</code> ·{" "}
-              <a href={`${DOCS_URL}/verify`} className="underline underline-offset-2">check it live ↗</a>
+              <a href={`${DOCS_URL}/verify`} target="_blank" rel="noreferrer" className="underline underline-offset-2">check it live ↗</a>
             </p>
           </div>
           {guards(p).map(([h, b]) => (

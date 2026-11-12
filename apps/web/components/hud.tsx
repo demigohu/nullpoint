@@ -15,6 +15,8 @@ const LINKS = [
   { href: "/dashboard", label: "Dashboard" },
   { href: DOCS_URL, label: "Docs" },
 ];
+// Docs is another site: open it in a new tab so the app stays where the visitor left it.
+const external = (href: string) => (href.startsWith("http") ? { target: "_blank", rel: "noreferrer" } : {});
 
 export function Wordmark({ className = "" }: { className?: string }) {
   return (
@@ -46,7 +48,7 @@ export function Hud({ network, liveMode, live }: { network: Network; liveMode: M
           <div className="hidden items-center gap-2 lg:flex">
             <div className="flex border border-tc bg-fc">
               {LINKS.map((l) => (
-                <Link key={l.href} href={l.href} aria-current={path === l.href ? "page" : undefined} className={`${seg(path === l.href)} flex items-center`}>
+                <Link key={l.href} href={l.href} {...external(l.href)} aria-current={path === l.href ? "page" : undefined} className={`${seg(path === l.href)} flex items-center`}>
                   {l.label}
                 </Link>
               ))}
@@ -66,7 +68,7 @@ export function Hud({ network, liveMode, live }: { network: Network; liveMode: M
             Close
           </button>
           {LINKS.map((l) => (
-            <Link key={l.href} href={l.href} className="wdth-118 text-5xl font-extrabold tracking-[-0.04em]">
+            <Link key={l.href} href={l.href} {...external(l.href)} className="wdth-118 text-5xl font-extrabold tracking-[-0.04em]">
               {l.label}
             </Link>
           ))}
