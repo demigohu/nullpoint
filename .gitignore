@@ -41,3 +41,6 @@ yarn-error.log*
 
 # local secrets (mock 1Click key, etc.)
 .keys/
+
+# Private deploy notes (never pushed)
+DEPLOY-VPS.md
