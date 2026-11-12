@@ -1,6 +1,6 @@
 # NullPoint — PRD
 
-Status: v0.3 · 2026-11-10 · deadline submission 2026-11-14 23:59 UTC
+Status: v0.4 · 2026-11-13 · mainnet live · deadline submission 2026-11-14 23:59 UTC
 
 ## 0. Keputusan yang sudah dikunci
 
@@ -17,9 +17,9 @@ Status: v0.3 · 2026-11-10 · deadline submission 2026-11-14 23:59 UTC
 | NAV | **Dihitung kontrak sendiri**: saldo yang dicatat kontrak × **harga dari quote 1Click bertanda tangan** (oracle, §6.1). Agent hanya melaporkan detail posisi short dan funding, dibatasi invariant (§6.1) |
 | Frontend | `apps/web`: `/` landing, `/app` vault, `/dashboard`. `apps/docs`: overview, cara kerja, arsitektur, model keamanan, **Verify** (cek live, pengganti `/proof`), run it yourself (§6.6) |
 | Urutan kerja | **Semua jalan di testnet dulu**, baru migrasi ke mainnet. Mainnet memakai ulang kode yang sama |
-| Submission | Disubmit dengan **deployment mainnet live** ($60 dana owner) + testnet untuk reproduksi juri |
+| Submission | Disubmit dengan **deployment mainnet live** (`vault.nullpoint.near`, $44 dana owner, 13 Nov) + testnet untuk dicoba juri |
 | Track | `defi` (utama), `security`, `agents` |
-| Fallback | Adapter spot di Hyperliquid (desain v0.2) disimpan bila jalur Intents bermasalah saat migrasi mainnet |
+| Fallback | Adapter spot di Hyperliquid (desain v0.2) tidak dipakai: jalur Intents jalan di mainnet (13 Nov, §8 G-F) |
 
 ## 1. Ringkasan
 
@@ -132,9 +132,9 @@ Kontrak **menyusun sendiri** payload dari parameter terstruktur, lalu meminta MP
 | Masuk ke Intents | USDC deposit user (kontrak) → akun Intents vault | `ft_transfer_call` ke `intents.near` dengan `receiver_id` = alamat vault. Tujuan dikunci kontrak | Kontrak, saat deposit |
 | Beli spot | USDC → BTC/ETH/wNEAR, di dalam akun Intents vault | Quote 1Click `depositType: INTENTS`, `recipient` = vault. Kontrak verifikasi quote → MPC menandatangani intent `transfer` ke `depositAddress` | Agent memanggil `sign_quote`, lalu `POST /v0/submit-intent` |
 | Rotasi spot | Aset A → aset B, di dalam akun Intents vault | Sama dengan beli spot | Sama |
-| Kirim margin | USDC akun Intents vault → USDC master (Hyperliquid) | Sama dengan beli spot, tapi `destinationAsset` = USDC `hypercore` dan `recipient` = alamat master (alamat yang sama dengan vault). **Masuk langsung ke saldo perp** | Agent memanggil `sign_quote` |
+| Kirim margin | USDC akun Intents vault → USDC master (Hyperliquid) | Sama dengan beli spot, tapi `destinationAsset` = USDC `hypercore` dan `recipient` = alamat master (alamat yang sama dengan vault). **Masuk langsung ke saldo perp**. Mainnet 13 Nov: 14.77 dikirim, 14.45 tiba (biaya tetap ~0.3 USDC) | Agent memanggil `sign_quote`, lalu `submit-intent` |
 | Buka short | — | Order L1 oleh agent | Agent |
-| Tarik margin | USDC master (Hyperliquid) → akun Intents vault | Quote 1Click `originAsset` = USDC `hypercore`, `recipient` = vault. Kontrak verifikasi quote → menyusun `sendAsset` (bisa dari perp) ke `depositAddress` yang terbukti → MPC. **Jangan `usdSend`** (potongan ekstra 1 USDC → `INCOMPLETE_DEPOSIT`). Fee tetap 0.2 USDC, minimal 0.5 USDC | Agent memanggil `hl_send_to_intents` |
+| Tarik margin | USDC master (Hyperliquid) → akun Intents vault | Quote 1Click `originAsset` = USDC `hypercore`, `recipient` = vault. Kontrak verifikasi quote → menyusun `sendAsset` (bisa dari perp) ke `depositAddress` yang terbukti → MPC. **Jangan `usdSend`** (potongan ekstra 1 USDC → `INCOMPLETE_DEPOSIT`). Fee tetap 0.2 USDC, minimal 0.5 USDC | Agent memanggil `sign_quote` (kontrak menyusun `sendAsset`, MPC menandatangani), lalu mengirimnya ke Hyperliquid |
 | Keluar ke user | Akun Intents vault → user | Intent `ft_withdraw` disusun kontrak, `receiver_id` = akun NEAR user yang withdraw | Kontrak, saat `fulfill_withdraw` |
 
 Jalur langsung NEAR ⇄ Hyperliquid (`hypercore` di 1Click) berarti tidak ada langkah Arbitrum dan tidak perlu ETH untuk gas.
@@ -159,7 +159,8 @@ Intents dan 1Click tidak punya testnet (HACKATHON.md Q-007). Spot Hyperliquid te
 | Margin NEAR ⇄ Hyperliquid | Solver mock punya wallet sungguhan di Hyperliquid testnet: mengirim USDC ke master (`usdSend` perp→perp) saat margin keluar, menerima `sendAsset` dari master saat margin ditarik. Jalur kontrak dan MPC identik dengan mainnet | 1Click (`hypercore`) |
 | Kaki perp | Nyata di Hyperliquid testnet | Nyata |
 | MPC | `v1.signer-prod.testnet` | `v1.signer` |
-| Akun agent | `keeper.nullpoint.testnet` (nama akun lama, tetap) | `agent.<owner>.near`, di-set lewat `new(agent: …)` / `set_agent` |
+| Akun agent | `keeper.nullpoint.testnet` (nama akun lama, tetap) | `agent.nullpoint.near`, di-set lewat `new(agent: …)` / `set_agent` |
+| Agent | `npm run agent` (`.env`, siklus 60 dtk) | `npm run agent:mainnet` (`.env.mainnet`, `NETWORK=mainnet`, siklus 600 dtk). Dua agent bisa jalan di satu host: lock, jurnal dan key terpisah per network |
 
 Satu basis kode. Perbedaannya hanya jaringan, alamat verifier (`mock-verifier` | `intents.near`), sumber quote (mock | 1Click), public key manajer 1Click di kontrak, dan token USDC Hyperliquid (`USDC:0xeb62…` testnet | `USDC:0x6d1e…` mainnet). Kontrak vault yang sama persis, termasuk logika "verifikasi quote lalu tandatangani", jalan di kedua jaringan.
 
@@ -167,13 +168,13 @@ Satu basis kode. Perbedaannya hanya jaringan, alamat verifier (`mock-verifier` |
 
 | Folder | Isi |
 |---|---|
-| `contracts/vault` | Rust (near-sdk). Owner: `set_agent`, `set_params`, `set_paused`, `set_margin_net`, `approve_agent`. Agent: `report_prices`, `report_position`, `report_decision`, `sign_quote`, `fulfill_withdraw`. Siapa saja: `ft_on_transfer` (deposit), `sweep`, `request_withdraw`, `execute_withdraw`. Inisialisasi: `new`, `reinit` (`#[private]`, state baru di akun yang sama). View: `get_state`, `get_shares`, `get_signed`, `get_withdrawals`, `get_decisions`, `get_nav_history`. 19 unit test (quote 1Click mainnet asli, signature MPC asli). |
+| `contracts/vault` | Rust (near-sdk). Owner: `set_agent`, `set_params`, `set_paused`, `set_margin_net`, `approve_agent`. Agent: `report_prices`, `report_position`, `report_decision`, `sign_quote`, `fulfill_withdraw`. Siapa saja: `ft_on_transfer` (deposit), `sweep`, `request_withdraw`, `execute_withdraw`. Inisialisasi: `new`, `reinit` (`#[private]`, state baru di akun yang sama). View: `get_state`, `get_shares`, `get_holding`, `get_signed`, `get_withdrawals`, `get_decisions`, `get_nav_history`. 25 unit test (quote 1Click mainnet asli, signature MPC asli) + 2 tes sandbox. Build reproducible (NEP-330), terverifikasi di NearBlocks testnet dan mainnet. |
 | `contracts/mock-ft` | NEP-141 testnet (mUSDC) dengan `mint` terbuka. |
 | `contracts/mock-verifier` | Pengganti `intents.near` di testnet (verifikasi tanda tangan `erc191` sungguhan, `is_nonce_used`, `reinit`). |
 | `packages/core` | TS bersama: derivasi alamat MPC, pembentuk pesan quote 1Click (identik dengan `quoteHash` SDK), helper Hyperliquid/Intents/RPC (fallback multi-endpoint), aset, strategi + guardrail (`strategy.ts`), strategist LLM (`@nullpoint/core/strategist`, node-only). Unit test. |
-| `apps/agent` | Loop agent: `chain.ts` (tanda tangan `near-kit`), `journal.ts` (lock + jurnal), `mock1click.ts` (testnet). |
+| `apps/agent` | Loop agent: `chain.ts` (tanda tangan `near-kit`), `journal.ts` (lock + jurnal, per network), `oneclick.ts` (mainnet: quote, `submit-intent`, status), `mock1click.ts` (testnet, antarmuka sama). |
 | `apps/web` | Frontend Next.js (§6.6). |
-| `scripts/` | `demo.ts` (dry-run tanpa key), `attack.ts`, `attack-llm.ts`, `simulate-crash.ts`, `simulate-strategy.ts`, `e2e-testnet.ts`, `deploy-testnet.sh`, `reset-testnet.ts`, `add-agent-keys.ts`, `approve-agent.ts`, `fixtures-oneclick.ts`, spike gate (`spike-*.ts`). |
+| `scripts/` | `demo.ts` (dry-run tanpa key), `attack.ts`, `attack-llm.ts`, `simulate-crash.ts`, `simulate-strategy.ts`, `e2e-testnet.ts`, `deploy-testnet.sh`, `deploy-mainnet.sh` (per langkah, default hanya menampilkan rencana), `reset-testnet.ts`, `add-agent-keys.ts`, `approve-agent.ts` (keduanya `--network mainnet`), `fixtures-oneclick.ts`, spike gate (`spike-*.ts`). |
 | root | `ecosystem.config.cjs` (pm2), `.env.example`. |
 
 ## 6. Spesifikasi fungsional
@@ -189,7 +190,7 @@ Satu basis kode. Perbedaannya hanya jaringan, alamat verifier (`mock-verifier` |
   | Exit | 0.5% nilai withdraw | Tetap di vault | Sama, untuk jual koin dan tutup short |
   | Performance | 5% dari kenaikan share price di atas high-water mark | Share baru dicetak untuk `treasury` saat `report_position` | Model bisnis protokol. Hanya dari funding yang benar-benar didapat; turun lalu naik kembali ke rekor tidak kena fee |
 
-  Batas atas dikunci di kontrak (entry/exit 1%, performance 20%), jadi owner tidak bisa menaikkan sembarangan lewat `set_params`. Entry/exit fee ikut menaikkan high-water mark, supaya performance fee tidak diambil dari uang yang hanya menutup biaya swap. Biaya rotasi koin tetap ditanggung semua pemegang share karena itu keputusan strategi bersama. `treasury` di testnet = `nullpoint.testnet`; mainnet = akun owner atau akun treasury terpisah (O2).
+  Batas atas dikunci di kontrak (entry/exit 1%, performance 20%), jadi owner tidak bisa menaikkan sembarangan lewat `set_params`. Entry/exit fee ikut menaikkan high-water mark, supaya performance fee tidak diambil dari uang yang hanya menutup biaya swap. Biaya rotasi koin tetap ditanggung semua pemegang share karena itu keputusan strategi bersama. `treasury` = akun owner: `nullpoint.testnet` / `nullpoint.near`.
 - **NAV dihitung kontrak sendiri:**
 
   | Komponen | Sumber |
@@ -202,15 +203,16 @@ Satu basis kode. Perbedaannya hanya jaringan, alamat verifier (`mock-verifier` |
   Koreksi 11 Nov: versi awal membandingkan nilai akun dengan `margin_net + PnL terbuka` sepanjang waktu. Funding yang diterima dan PnL dari posisi yang sudah ditutup menumpuk di luar rumus itu, sehingga vault pause sendiri begitu posisi mengecil (terjadi saat uji PARK). Cek per laporan menyelesaikannya, dan pergeseran besar mendadak tetap memicu pause.
 
 - **Oracle harga = quote 1Click bertanda tangan.** Agent memanggil `report_prices([{message, signature}])` dengan quote `dry` aset → USDC (mis. 0.001 BTC → USDC). Kontrak memverifikasi ed25519, memastikan `destinationAsset` = USDC dan `originAsset` ∈ allowlist, menolak `timestamp` lebih tua dari `max_price_age_s` (default 120), lalu menyimpan harga = `amountOut / amountIn`. Harga sudah dipotong fee, jadi penilaian konservatif. Testnet: `mock-1click` menandatangani quote dari mark price Hyperliquid.
-- `report_position(positions, account_value)` hanya oleh agent. Kontrak membaca saldo spot sendiri dari verifier. Pelanggaran invariant → `paused` (owner harus investigasi).
+- `report_position(positions, account_value)` hanya oleh agent. Kontrak membaca saldo spot sendiri dari verifier. Pelanggaran invariant → `paused` (owner harus investigasi). Harga basi bukan pelanggaran: laporannya dibuang (`REJECTED: <aset> price stale`) dan NAV lama tetap dipakai (koreksi 12 Nov: agent telat 3 menit dan vault testnet pause).
 - Deposit dan withdraw diberi harga dari NAV hasil hitung kontrak, bukan angka dari agent.
 - Riwayat NAV: ring buffer ~500 entri `(ts, nav, share_price, active_asset)` untuk grafik dashboard.
 - Withdraw: `request_withdraw(shares)` → agent `fulfill_withdraw` (harga dari NAV, MPC menandatangani `ft_withdraw` ke user) → `execute_withdraw`. Agent menjalankan semuanya otomatis (1–3 menit). `execute_withdraw` tidak punya cek pemanggil, jadi user bisa menyelesaikannya sendiri kalau agent mati.
 - `report_decision` hanya oleh agent: aksi, target, diterima/ditolak, catatan, chat id NEAR AI + alamat penanda tangan TEE.
 - `reinit(generation, …)` (`#[private]`): state baru di akun yang sama dengan prefix storage generasi baru. Dipakai untuk reset testnet, karena NEAR tidak mengizinkan menghapus akun dengan state besar.
 - `paused`: deposit/withdraw/swap ditolak. Owner bisa mencabut key trading (`approve_agent` dengan nama sama, alamat baru) dan mengganti agent (`set_agent`).
-- `deposited` per akun: USDC yang disetor dikurangi bagian yang sudah ditarik (pro rata). View `get_holding(account_id)` → `{ shares, deposited }`, dipakai app untuk menampilkan hasil.
+- `deposited` per akun: USDC yang disetor dikurangi bagian yang sudah ditarik (pro rata). View `get_holding(account_id)` → `{ shares, deposited, entry_cost }`, dipakai app untuk menampilkan hasil terpisah dari fee deposit.
 - Cap TVL `max_tvl` (mainnet: $100).
+- Parameter mainnet yang beda dari testnet: `max_tvl` $100 (testnet $1.000), `max_swap_usdc` $50 ($100), `margin_slippage_bps` 500 (300; biaya tetap 1Click ~0.3 USDC sudah >3% untuk margin di bawah ~$10), `max_nav_age_s` 900 (600; siklus agent 10 menit), `nav_history_interval_s` 1800 (600). Sama: fee 50/50/500 bps, drift 200, band 200, harga ≤120 dtk.
 
 ### 6.2 Swap dan margin: verifikasi quote lalu tandatangani
 
@@ -239,7 +241,7 @@ Format yang sudah diverifikasi:
 
 ### 6.3 Agent: siklus
 
-Stateless terhadap chain: setiap siklus (default 60 detik) membaca vault, verifier, dan Hyperliquid, lalu bergerak satu langkah menuju kondisi yang diinginkan.
+Stateless terhadap chain: setiap siklus (60 detik di testnet, 600 di mainnet) membaca vault, verifier, dan Hyperliquid, lalu bergerak satu langkah menuju kondisi yang diinginkan.
 
 1. Lanjutkan perpindahan dana yang tertinggal dari siklus sebelumnya (jurnal, §6.8). Lalu sweep deposit.
 2. `report_prices`: quote dry per aset → harga terverifikasi.
@@ -253,7 +255,7 @@ Stateless terhadap chain: setiap siklus (default 60 detik) membaca vault, verifi
    6. Tarik margin berlebih.
 5. **Hedge lebih dulu:** setiap swap spot menyesuaikan short sebelum spot berubah (kurangi short aset asal, tambah short aset tujuan sesuai quote). Kalau Hyperliquid menolak order, swap dibatalkan.
 6. Hedge: short tiap aset disamakan dengan spot (pembulatan dan sisa).
-7. `report_position`, **hanya kalau hedge seimbang**. Kalau tidak (misalnya Hyperliquid menolak order saat macet), laporan ditunda: NAV basi menahan deposit sampai hedge pulih, alih-alih memicu pause.
+7. `report_position`, **hanya kalau hedge seimbang**. Harga dilaporkan ulang dulu bila umurnya lewat setengah `max_price_age_s` (settlement 1Click bisa makan waktu). Kalau tidak (misalnya Hyperliquid menolak order saat macet), laporan ditunda: NAV basi menahan deposit sampai hedge pulih, alih-alih memicu pause.
 
 Leverage ≤ 2x (`updateLeverage` sebelum setiap order). Semua langkah alokasi dibungkus supaya kegagalan tidak membatalkan laporan.
 
@@ -292,7 +294,7 @@ Rotasi = swap spot A → B lewat Intents (~0.3%) + tutup short A dan buka short 
 
 ### 6.6 Frontend (`apps/web`)
 
-Toggle testnet/mainnet di semua halaman. Versi hosted default ke mainnet. Wallet NEAR lewat `@hot-labs/near-connect`.
+Toggle testnet/mainnet di semua halaman (default lewat `NEXT_PUBLIC_DEFAULT_NET`). Funding yang ditampilkan selalu dari Hyperliquid network yang sama dengan vault. Wallet NEAR lewat `@hot-labs/near-connect`.
 
 **`/` Landing**: untuk juri manusia dan viewer post X.
 - Hero: satu kalimat masalah + satu kalimat solusi, tanpa jargon.
@@ -305,7 +307,7 @@ Toggle testnet/mainnet di semua halaman. Versi hosted default ke mainnet. Wallet
 **`/app` Vault**: untuk user.
 - Connect wallet. Deposit/withdraw USDC.
 - Posisi user: share, nilai sekarang, modal yang disetor, dan hasil (nilai − modal) dari `get_holding`.
-- Status antrean withdraw.
+- Status antrean withdraw: 3 terbaru (sisanya di balik "Show N older"), langkah signed dan paid dengan link transaksinya (dicari lewat NearBlocks dari waktu tanda tangan dan id withdraw).
 - S1: "deposit dari chain apa pun" lewat 1Click (quote → alamat deposit → status REFUNDED/FAILED/SUCCESS).
 
 **`/dashboard`**: untuk user dan juri DeFi.
@@ -335,13 +337,14 @@ Toggle testnet/mainnet di semua halaman. Versi hosted default ke mainnet. Wallet
 
 - **Penandatanganan tanpa CLI:** `near-kit` dengan private key dari `.env`. Transaksi ditandatangani sekali (hash diketahui), dikirim ulang dengan byte yang sama, dan statusnya dipolling sampai final. Aman diulang di endpoint mana pun tanpa risiko eksekusi ganda. RPC publik sering timeout (500) saat menunggu transaksi yang memanggil MPC.
 - **Key terbatas:** function-call key yang hanya boleh memanggil vault (`scripts/add-agent-keys.ts`). Full access key owner tidak pernah ada di host agent.
-- **RPC:** fallback ke beberapa endpoint, `NEAR_RPC_URLS` (berbayar) dicoba lebih dulu.
-- **Lock:** satu agent per host (`.state/agent.lock`). Satu agent per key adalah aturan operasional.
+- **RPC:** fallback ke beberapa endpoint, `NEAR_RPC_URLS` (berbayar) dicoba lebih dulu. Saat start agent mengecek `chain_id` tiap endpoint dan menolak jalan bila ada yang dari network lain (12 Nov: RPC mainnet di `.env` testnet membuat transaksi `Expired` dan swap/withdraw macet). Transaksi yang ditolak RPC (`INVALID_TRANSACTION`, kecuali soal nonce) langsung gagal dengan error aslinya, tidak menunggu 180 detik.
+- **NEAR untuk gas:** transaksi 300 Tgas (`sign_quote`, `fulfill_withdraw`) butuh ~0.3 NEAR bebas di akun agent sebagai prabayar, lalu sisanya dikembalikan. Akun agent harus selalu punya ≥0.5 NEAR bebas (12 Nov: 0.27 NEAR → `NotEnoughBalance`, withdraw macet). Pemakaian: ~1.1 NEAR/hari di siklus 60 dtk, ~0.14 di 600 dtk.
+- **Lock:** satu agent per network per host (`.state/[mainnet/]agent.lock`). Satu agent per key adalah aturan operasional: transaksi lain dengan key agent saat agent jalan bisa mengganggu nonce-nya.
 - **Jurnal:** setiap perpindahan dana dicatat (quote → signed → executed → filled). Setelah crash, siklus berikutnya melanjutkan: intent dicek dengan `is_nonce_used` lalu dieksekusi kalau belum dan masih berlaku, `sendAsset` dikirim ulang (Hyperliquid menolak nonce ganda), solver mock tidak mengisi dua kali. Diuji dengan crash paksa setelah MPC menandatangani transfer margin.
 - **Skala withdraw:** sampai 5 per siklus, FIFO, likuiditas dikumpulkan khusus untuk antrean.
 - **Selisih hedge kecil:** order IOC bisa terisi sebagian (terlihat di testnet: short 0,00022 BTC terisi 0,0002), meninggalkan selisih di luar band tapi di bawah minimum order $10. Akibatnya agent berhenti report dan NAV basi menahan deposit. Langkah hedge kini menutup selisih seperti itu dengan dua order: short sebesar selisih + satu order minimum, lalu buy back order minimum itu. Kaki short selalu jalan duluan.
 - **Leverage venue ≠ leverage vault:** leverage ekonomi (2x) ditentukan pembagian dana (margin = equity / (L+1)). Setelan leverage Hyperliquid hanya menentukan initial margin per order. Kalau disetel sama dengan L, margin terpakai 100% dan order apa pun ditolak ("Insufficient margin"). Agent menyetel min(5x, maks aset). Risiko likuidasi tidak berubah karena mode cross diukur dari maintenance margin terhadap nilai akun, dan tetap dijaga aturan darurat margin (< 3× maintenance).
-- **Deploy:** `ecosystem.config.cjs` (pm2, autorestart). Monitoring yang disarankan: endpoint health yang gagal bila NAV > 5 menit, dipantau uptime checker.
+- **Deploy:** `ecosystem.config.cjs` (pm2, autorestart), dua proses (testnet + mainnet). Monitoring yang disarankan: endpoint health yang gagal bila NAV basi atau vault pause, dipantau uptime checker.
 
 ## 7. Risiko dan model ancaman
 
@@ -349,7 +352,7 @@ Toggle testnet/mainnet di semua halaman. Versi hosted default ke mainnet. Wallet
 |---|---|---|---|
 | R1 | Agent key bocor | Agent tidak bisa withdraw/send. Owner mencabut key lewat kontrak (`approve_agent` nama sama, alamat baru) dan `set_agent` | Agent **masih bisa merugikan** kaki short lewat trading buruk atau `vaultTransfer`. Kaki spot aman karena dipegang kontrak |
 | R2 | Funding negatif lama | Rotasi ke aset lain. Bila semua negatif → `PARKED` | Yield bisa nol |
-| R3 | Agent memalsukan NAV | Spot dan USDC dibaca kontrak dari verifier, harga dari quote 1Click terverifikasi. Nilai akun Hyperliquid dicek per laporan terhadap laporan sebelumnya + margin yang dipindah + efek harga. Pelanggaran → pause | Tidak trustless: agent jahat bisa menggeser nilai akun sampai `max_report_drift_bps` (1%) per laporan. Pergeseran beruntun terlihat di riwayat NAV, dan owner bisa pause |
+| R3 | Agent memalsukan NAV | Spot dan USDC dibaca kontrak dari verifier, harga dari quote 1Click terverifikasi. Nilai akun Hyperliquid dicek per laporan terhadap laporan sebelumnya + margin yang dipindah + efek harga. Pelanggaran → pause | Tidak trustless: agent jahat bisa menggeser nilai akun sampai `max_report_drift_bps` (2%) per laporan. Pergeseran beruntun terlihat di riwayat NAV, dan owner bisa pause |
 | R10 | LLM strategist kena prompt injection atau berhalusinasi | Skema output tertutup, guardrail pasti, batas kontrak, fallback aturan pasti | LLM bisa membuat keputusan buruk **di dalam** pagar (mis. rotasi yang tidak menguntungkan), dibatasi maks 2 rotasi/hari |
 | R12 | Hyperliquid menolak order (kemacetan, terlihat di testnet: "only post-only orders") | Hedge lebih dulu: swap tidak jalan tanpa short yang sesuai. Laporan ditunda selama hedge tidak seimbang | Deposit tertunda selama venue macet. Order post-only sebagai fallback belum dibuat |
 | R13 | Host agent crash di tengah perpindahan dana | Jurnal + `is_nonce_used`, dilanjutkan di siklus berikutnya | Intent margin yang kedaluwarsa sebelum agent hidup lagi membuat catatan margin salah → pause, owner koreksi `set_margin_net` |
@@ -360,6 +363,8 @@ Toggle testnet/mainnet di semua halaman. Versi hosted default ke mainnet. Wallet
 | R7 | Agent membelokkan dana lewat swap/transfer margin | Kontrak memverifikasi tanda tangan quote 1Click (ed25519) dan memeriksa `recipient`/`refundTo` = vault sebelum MPC menandatangani (§6.2) | Agent jahat hanya bisa memilih quote terburuk yang lolos batas harga oracle (≤ `max_slippage_bps` per swap). Vault mempercayai 1Click untuk mengeksekusi quote yang ia tandatangani |
 | R8 | Jeda tanpa hedge saat swap (~20–35 detik) | Urutan eksekusi §6.3 / §6.4 | Ada eksposur harga singkat di setiap pembukaan hedge |
 | R9 | Risiko venue (Hyperliquid) dan bridge token (nBTC, ETH bridged) | Disebut terang-terangan | Vault mewarisi risiko Hyperliquid dan bridge |
+| R14 | Agent mati atau kehabisan NEAR | NEAR cukup sampai 25 Nov (testnet 14 NEAR, mainnet 1.5 NEAR), pm2 autorestart di VPS | Selama agent mati, posisi tetap hedged tapi laporan, rebalance dan withdraw berhenti. User bisa menyelesaikan withdraw yang sudah ditandatangani sendiri (`execute_withdraw`) |
+| R15 | Key agent Hyperliquid kedaluwarsa | `validUntil` 90 hari (mainnet: 10 Feb 2027). Approve ulang dengan `approve-agent.ts` | Lewat tanggal itu agent tidak bisa trading sampai di-approve ulang |
 
 ## 8. Gate teknis dan hasil spike
 
@@ -370,13 +375,14 @@ Toggle testnet/mainnet di semua halaman. Versi hosted default ke mainnet. Wallet
 | G-C: Spot Hyperliquid testnet | ❌ Rusak. Tidak relevan lagi: kaki spot kini di akun Intents vault (testnet: mock-verifier) |
 | G-D: Siapa yang boleh memindahkan margin | ✅ `usdClassTransfer` user-signed (master saja). `vaultTransfer`/`subAccountTransfer` L1 (agent bisa → R1) |
 | G-E: Rute 1Click untuk desain Intents-native | ✅ Quote dry-run sukses: USDC→nBTC di NEAR, USDC NEAR ⇄ USDC Hyperliquid (`hypercore`). Lihat tabel §5 |
-| G-F: Transfer margin akun Intents vault ⇄ Hyperliquid lewat 1Click | Belum diuji dengan dana. Dicek di awal migrasi mainnet dengan nominal $1 |
+| G-F: Transfer margin akun Intents vault ⇄ Hyperliquid lewat 1Click | ✅ **Lolos (13 Nov, mainnet)**. Intent bertanda tangan MPC → `submit-intent` → `SUCCESS`: 14.77 USDC dikirim, 14.45 tiba di saldo perp master. Beli BTC 29.32 USDC lewat jalur yang sama: `SUCCESS` |
 | G-G: `intents.near` menerima intent `erc191` yang ditandatangani MPC | ✅ **Lolos (10 Nov)** via `simulate_intents` di mainnet (gratis, tanpa dana). Lihat tabel di bawah |
 | G-H: Jalur eksekusi swap untuk akun vault | ❌ Message bus solver: **tidak ada likuiditas untuk aset kita**. Uji 11 Nov: key tidak dicek (tanpa key / key palsu / key asli identik). USDC→USDT dapat 1 quote, tapi USDC⇄nBTC dan USDC⇄wNEAR selalu `null`. Dokumentasi juga menyarankan 1Click untuk integrasi swap. ✅ 1Click signed-intent jalan: quote `INTENTS` + `generate-intent` (`erc191`, signer = alamat vault) menghasilkan satu `transfer` ke `depositAddress`. **Dipakai: 1Click** |
 | G-I: Kontrak bisa membuktikan `depositAddress` milik 1Click | ✅ **Lolos (10 Nov)**. Quote ditandatangani ed25519 oleh key manajer 1Click. Quote asli: valid. `depositAddress` dipalsukan: tidak valid. NEAR punya `env::ed25519_verify` |
 | G-J: Model NEAR AI Cloud dengan attestation TEE | ✅ `deepseek-ai/DeepSeek-V4.1-Flash-1017`, `Qwen/Qwen3.8-27B`, `Qwen/Qwen3.6-35B-A3B-FP8` mengembalikan attestation + `signing_address`. Claude/GPT/Qwen-max: tidak ada attestation (anonymised) |
 | G-K: `sendAsset` dari master yang ditandatangani MPC diterima Hyperliquid (tarik margin) | ✅ 11 Nov di testnet, token `USDC:0xeb62…` (beda dengan mainnet) |
 | G-L: NEAR tidak mengizinkan menghapus akun dengan state besar | ⚠️ Ditemukan 11 Nov → `reinit` dengan prefix storage generasi baru |
+| G-M: `approveAgent` untuk master yang belum punya akun Hyperliquid | ⚠️ Ditolak (`userRole: missing`). Urutan mainnet: deposit → agent kirim margin (tanpa key trading) → approve → short. Agent aman di urutan ini karena hedge lebih dulu: tanpa short, swap spot tidak jalan |
 
 Bukti spike (10 Nov, `scripts/spike-chainsig-hl.ts`, master `nullpoint.testnet`/`hl-master` = `0x5e33437E5b871F1Aa9E252Dd00a36C53DFcb9a8D`):
 
@@ -403,7 +409,7 @@ Catatan: leverage default Hyperliquid 20x cross, jadi agent wajib `updateLeverag
 | ID | Pertanyaan | Status |
 |---|---|---|
 | O1 | Apakah 1Click punya rute langsung ke Hyperliquid? | ✅ Ya, chain `hypercore` (§5) |
-| O2 | Akun NEAR mainnet owner (juga untuk payout hadiah) | Terbuka. Dibutuhkan sebelum migrasi (Kam 13) |
+| O2 | Akun NEAR mainnet owner (juga untuk payout hadiah) | ✅ `nullpoint.near` (owner + treasury) |
 | O3 | ETH di Arbitrum untuk gas alamat master | ✅ Tidak perlu (rute langsung) |
 | O4 | Ukuran tim untuk field submission | Terbuka. Sebelum submit |
 | O5 | **Partner API key NEAR Intents** (partners.near-intents.org) | ✅ Ada (Distribution Channel, di `.env`). Jalan untuk `quote`/`generate-intent`. Catatan: quote USDC NEAR→Hyperliquid dengan dan tanpa key hasilnya sama (19.68 dari 20), jadi diskon fee belum terlihat. Cek ulang status key di portal. Tidak lagi memblokir mainnet. Daftar secepatnya karena waktu approval tidak terdokumentasi. Fallback bila tidak dapat: swap lewat alamat deposit 1Click dengan mitigasi R7 lama (`max_swap_amount` + cek saldo + auto-pause) |
@@ -416,8 +422,8 @@ Catatan: leverage default Hyperliquid 20x cross, jadi agent wajib `updateLeverag
 |---|---|---|
 | Sen 10 Nov | Riset + spike gate A–J | ✅ |
 | Sel 11 Nov | Testnet: kontrak + mock + core, agent (alokasi, rotasi, PARK, withdraw batch, strategist LLM), frontend 4 halaman, demo/attack/simulate, keandalan agent (near-kit, key terbatas, jurnal, lock, hedge lebih dulu) | ✅ (regresi PARK → RESUME lulus 11 Nov) |
-| Rab 12 Nov | ✅ Redesign frontend, rename keeper → agent, dialog transaksi, dashboard interaktif, modal per akun, tes integrasi sandbox, `npm test` di root. Belum: Migrasi mainnet: jalur 1Click asli di agent (`submit-intent` + polling status), deploy kontrak (cap $100), key agent mainnet, approve agent, deposit $60 | |
-| Kam 13 Nov | Agent mainnet di VPS (pm2), hosting web, monitoring, README | |
+| Rab 12 Nov | Redesign frontend, rename keeper → agent, dialog transaksi, dashboard interaktif, modal per akun, tes integrasi sandbox, `npm test` di root, fee (§6.1), agent mode mainnet, perbaikan keandalan (§6.8) | ✅ |
+| Kam 13 Nov | Verifikasi kontrak testnet, migrasi mainnet (§12). Belum: agent di VPS (pm2), hosting web, monitoring pause, README | ✅ migrasi |
 | Jum 14 Nov | Video, post X, uji di clone bersih, submit | |
 
 **Aturan migrasi:** mainnet tidak disentuh sampai regresi testnet lulus. Setiap tx mainnet minta konfirmasi owner.
@@ -431,3 +437,25 @@ Catatan: leverage default Hyperliquid 20x cross, jadi agent wajib `updateLeverag
 - Dashboard hosted hidup sampai minimal 18 Nov (idealnya 25 Nov).
 - LICENSE (MIT). Disclosure: library, kode hasil AI, tidak ada kode pra-hackathon.
 - Tidak ada secret di repo. `.env.example` lengkap.
+
+## 12. Deployment mainnet (13 Nov)
+
+| Item | Nilai |
+|---|---|
+| Kontrak vault | `vault.nullpoint.near`, build reproducible dari commit `8e28abf`, terverifikasi di NearBlocks |
+| Owner / treasury | `nullpoint.near` |
+| Agent | `agent.nullpoint.near` (function-call key, hanya ke vault) |
+| Alamat vault (Intents + master Hyperliquid) | `0x610da6eff2adec2aae201c2970fdafe66189b939` (turunan `v1.signer`, path `hl-master`) |
+| Key trading Hyperliquid | `0xd8b2be1be359685bd052cd5924541f38575ddb71` ("nullpoint-agent", berlaku sampai 10 Feb 2027) |
+
+| Langkah | Tx |
+|---|---|
+| Buat `vault.` (3.8 NEAR) / `agent.` (1.5 NEAR) | `F4Mi9p5KCG2USSJF9WAYwjiHnHrY89T77EyMpPSCd11N` / `8ZF4wSzkj8qPrMH6uXnyp1At4q9k3nET8W8woZX7UGmb` |
+| Deploy + init | `J1ZHrMaEqAbciW8wMxMY61W1bzkg3vLiTeF8qjfVWpbU` |
+| Daftar di kontrak USDC | `7rCYYWxX4h5qftKT86uSoDc5aqx79RtM16pfwdNSehtuP` |
+| Deposit 44 USDC → sweep ke Intents | `G5cmNQxcqLA2sYy4L5xQGV8VjgqxpThbz31TxGfzWjEb` |
+| Margin 14.77 USDC ke Hyperliquid (`sign_quote`) | `G9ManbtAdVcFvedKdRg4VAbcXueZg9TRfZPFpwDKSwD4` |
+| `approveAgent` lewat MPC | `BWsqw7CcbZ54rQpRhtAxXY85kYuf6NMsQQu3QP7BqsaX` |
+| Short 0.0004 BTC (Hyperliquid oid `603051969380`) lalu beli BTC 29.32 USDC (`sign_quote`) | `6Q4Yuh5NCyGcyGjgPngXxPTUk7cPqUVuiAWDuWygTork` |
+
+Hasil: NAV 43.77 USDC, spot 0.00040764 nBTC lawan short 0.0004 BTC, leverage ~2x, tidak pause. Belum: withdraw parsial mainnet (bagian G11).
