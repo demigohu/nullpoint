@@ -82,7 +82,7 @@ INIT=$(cat <<EOF
     "max_slippage_bps": 150,
     "margin_slippage_bps": 300,
     "hedge_band_bps": 200,
-    "max_report_drift_bps": 100,
+    "max_report_drift_bps": 200,
     "dust_usdc": "500000",
     "max_price_age_s": 120,
     "max_nav_age_s": 600,
