@@ -21,6 +21,16 @@ export function rpcUrls(network: Network): string[] {
   return [...new Set([...extra, ...RPCS[network]])];
 }
 
+/** Fails if an extra endpoint serves another network: a mainnet RPC in a testnet agent's list (or the
+ * reverse) answers every fallback call with "Expired" or "unknown transaction". */
+export async function assertRpcNetwork(network: Network) {
+  for (const url of rpcUrls(network)) {
+    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "status", params: [] }) }).catch(() => null);
+    const chain = (await res?.json().catch(() => null))?.result?.chain_id;
+    if (chain && chain !== network) throw new Error(`NEAR_RPC_URLS has a ${chain} endpoint (${new URL(url).host}) in a ${network} agent`);
+  }
+}
+
 export function signer(network: Network, accountId: string, privateKey: string): Signer {
   const clients = rpcUrls(network).map(
     (rpcUrl) => new Near({ network: { networkId: network, rpcUrl }, privateKey: privateKey as `ed25519:${string}`, defaultSignerId: accountId }),

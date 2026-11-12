@@ -18,7 +18,7 @@ import {
   postSignedAction, signedMessage as msg, view, type Context, type Decision, type Market,
 } from "@nullpoint/core";
 import { askStrategist } from "@nullpoint/core/strategist";
-import { signerFromEnv } from "./chain.ts";
+import { assertRpcNetwork, signerFromEnv } from "./chain.ts";
 import { NET, acquireLock, journal } from "./journal.ts";
 
 const MAINNET = NET === "mainnet";
@@ -460,6 +460,7 @@ async function cycle() {
 }
 
 acquireLock();
+await assertRpcNetwork(NET);
 const once = process.argv.includes("--once");
 do {
   try {

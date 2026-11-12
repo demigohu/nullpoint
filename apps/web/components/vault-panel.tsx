@@ -14,6 +14,7 @@ type Withdrawal = { id: number; account: string; shares: string; usdc: string; s
 type ChainState = { paused: boolean; total_shares: string; snapshot: { nav: string; ms: number } | null; params: { max_tvl: string; max_nav_age_s: number; entry_fee_bps: number; exit_fee_bps: number }; withdrawal_count: number };
 
 const STUCK_MS = 10 * 60_000; // only then offer the self-serve fallback
+const RECENT = 3; // withdrawals listed before "show older"
 const TGAS = (n: number) => String(n * 1e12);
 const fmt = (raw: bigint | string | number, d = 6) => (Number(raw) / 10 ** d).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const ago = (s: number) => (s < 90 ? `${s}s ago` : `${Math.round(s / 60)} min ago`);
@@ -30,6 +31,7 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
   const [basis, setBasis] = useState<{ deposited: bigint; entryCost: bigint } | null>(null);
   const [chain, setChain] = useState<ChainState | null>(null);
   const [mine, setMine] = useState<Withdrawal[]>([]);
+  const [allShown, setAllShown] = useState(false);
   const [tab, setTab] = useState<"deposit" | "withdraw">("deposit");
   const [amount, setAmount] = useState("");
   const [withdrawShares, setWithdrawShares] = useState("");
@@ -55,9 +57,9 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
     setChain(r.state);
     const w = (await viewFunction({ contractId: net.vault, method: "get_withdrawals", args: { from: "0", limit: Math.max(r.state.withdrawal_count, withdrawalCount) + 20 } })) as [number, Omit<Withdrawal, "id">][];
     const own = w.map(([id, x]) => ({ id, ...x })).filter((x) => x.account === signedAccountId).reverse();
-    // When the payout was signed, so a stuck one can offer the self-serve fallback.
+    // When the payout was signed: a stuck one offers the self-serve fallback, and the time finds its transactions.
     await Promise.all(
-      own.filter((x) => x.status === "signed" && x.signed_id !== null).map(async (x) => {
+      own.filter((x) => x.signed_id !== null).map(async (x) => {
         const res = (await viewFunction({ contractId: net.vault, method: "get_signed", args: { from: String(x.signed_id), limit: 1 } })) as [number, { ms: number }][];
         x.signedMs = res[0]?.[1].ms;
       }),
@@ -293,8 +295,13 @@ export function VaultPanel({ net, withdrawalCount }: { net: NetConfig; withdrawa
           <p className="mt-4 text-[14px]">No withdrawals yet. When you make one, you can follow each step here.</p>
         ) : (
           <ul className="mt-4">
-            {mine.map((w) => <WithdrawalRow key={w.id} w={w} onFinish={() => setTx(finishSpec(w))} />)}
+            {(allShown ? mine : mine.slice(0, RECENT)).map((w) => <WithdrawalRow key={w.id} w={w} txUrl={L.tx} onFinish={() => setTx(finishSpec(w))} />)}
           </ul>
+        )}
+        {mine.length > RECENT && (
+          <button type="button" onClick={() => setAllShown(!allShown)} aria-expanded={allShown} className="mt-2 font-mono text-[12px] underline underline-offset-2">
+            {allShown ? "Show the latest only" : `Show ${mine.length - RECENT} older`}
+          </button>
         )}
         <a href={L.account(net.vault)} target="_blank" rel="noreferrer" className="mt-6 inline-block font-mono text-[12px] underline underline-offset-2">
           Vault contract on NearBlocks ↗
@@ -313,9 +320,16 @@ const STEPS = [
 ] as const;
 
 /** Status track: one square bit per step (DESIGN.md §5). */
-function WithdrawalRow({ w, onFinish }: { w: Withdrawal; onFinish: () => void }) {
+function WithdrawalRow({ w, txUrl, onFinish }: { w: Withdrawal; txUrl: (h: string) => string; onFinish: () => void }) {
   const done = w.status === "done" ? 3 : w.status === "signed" ? 2 : 1;
   const stuck = w.status === "signed" && w.signedMs !== undefined && Date.now() - w.signedMs > STUCK_MS;
+  // The vault keeps when it signed, not the hashes: look up the signing and payout transactions.
+  const [hashes, setHashes] = useState<(string | null)[]>([]);
+  useEffect(() => {
+    if (w.signedMs === undefined) return;
+    const find = (q: string) => fetch(`/api/tx?ms=${w.signedMs}&${q}`).then((r) => r.json()).then((j: { hash: string | null }) => j.hash).catch(() => null);
+    Promise.all([find("methods=fulfill_withdraw"), done === 3 ? find(`methods=execute_withdraw&id=${w.id}`) : null]).then(setHashes);
+  }, [w.signedMs, w.id, done]);
   return (
     <li className="border-t border-tc py-4">
       <p className="num text-[14px]">
@@ -332,6 +346,11 @@ function WithdrawalRow({ w, onFinish }: { w: Withdrawal; onFinish: () => void })
                 <span className="font-mono text-[11px] uppercase tracking-[0.2em]">{name}</span>
                 <span className="sr-only"> ({state === "done" ? "done" : state === "now" ? "in progress" : "waiting"})</span>
                 {state === "done" && <span className="block">{body}</span>}
+                {state === "done" && i > 0 && hashes[i - 1] && (
+                  <a href={txUrl(hashes[i - 1]!)} target="_blank" rel="noreferrer" className="mt-1 inline-block font-mono text-[11px] underline underline-offset-2">
+                    Transaction ↗
+                  </a>
+                )}
               </span>
             </li>
           );
