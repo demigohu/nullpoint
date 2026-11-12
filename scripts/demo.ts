@@ -1,12 +1,12 @@
 // Dry-run walkthrough for reviewers: no keys, no funds, nothing is signed or sent.
 //   npm run demo
-// 1. live vault state on testnet          4. a ±20% BTC move against the hedge
+// 1. live vault state on testnet          4. the live position repriced ±20%
 // 2. the vault's MPC address, recomputed   5. the guardrail vs a compromised strategist
 // 3. a real mainnet 1Click quote, signature verified the way the contract does it
 import { createHash } from "node:crypto";
 import { base58 } from "@scure/base";
 import { verifyQuoteSignature } from "@defuse-protocol/one-click-sdk-typescript";
-import { deriveEvmAddress, getQuote, guardrail, hlInfo, signedMessage, view, type Context, type Market } from "@nullpoint/core";
+import { ASSETS, deriveEvmAddress, getQuote, guardrail, hlInfo, signedMessage, view, type Context, type Market } from "@nullpoint/core";
 
 const VAULT = "vault.nullpoint.testnet";
 const ok = (b: boolean) => (b ? "✅" : "❌");
@@ -41,11 +41,23 @@ const forged = structuredClone(q);
 forged.quoteRequest.recipient = "0x000000000000000000000000000000000000dead";
 console.log(`   same quote with the recipient swapped to an attacker: ${ok(!verifyQuoteSignature(forged as never))} rejected`);
 
-h("4. BTC moves ±20% in a day: spot and short cancel");
+h("4. The live position, with the price moved ±20%: spot and short cancel");
+// Today's holdings (the contract's last snapshot) and short (Hyperliquid), repriced at the mark ±20%.
+const [meta, ctxs] = await hlInfo<[{ universe: { name: string }[] }, { markPx: string }[]]>("testnet", { type: "metaAndAssetCtxs" });
+const nav = Number(s.snapshot?.nav ?? 0) / 1e6;
+const legs = ASSETS.map((a, i) => ({
+  coin: a.hlCoin,
+  held: Number(BigInt(s.snapshot?.spot?.[i] ?? "0")) / 10 ** a.decimals,
+  short: Number(hl.assetPositions.find((p: any) => p.position.coin === a.hlCoin)?.position.szi ?? 0),
+  px: Number(ctxs[meta.universe.findIndex((u) => u.name === a.hlCoin)]?.markPx ?? 0),
+})).filter((l) => l.held || l.short);
+if (!legs.length) console.log("   nothing held right now, so nothing to move");
+for (const l of legs) console.log(`   ${l.held} ${l.coin} held, ${l.short} ${l.coin} short, mark $${l.px.toLocaleString()}`);
 for (const move of [-0.2, 0.2]) {
-  const qty = 666.67 / 74_000, px = 74_000 * (1 + move);
-  const nav = qty * px + 333.33 + qty * (74_000 - px) + (qty * px * 0.1) / 365;
-  console.log(`   BTC ${move > 0 ? "+" : ""}${move * 100}%: $1000 deposit -> NAV $${nav.toFixed(2)}`);
+  const spotPnl = legs.reduce((t, l) => t + l.held * l.px * move, 0);
+  const shortPnl = legs.reduce((t, l) => t + l.short * l.px * move, 0);
+  const sign = (v: number) => `${v < 0 ? "-" : "+"}$${Math.abs(v).toFixed(2)}`;
+  console.log(`   ${move > 0 ? "+" : ""}${move * 100}%: spot ${sign(spotPnl)}, short ${sign(shortPnl)} -> NAV $${nav.toFixed(2)} -> $${(nav + spotPnl + shortPnl).toFixed(2)}`);
 }
 
 h("5. A compromised strategist asks for the attacker's wish list");
