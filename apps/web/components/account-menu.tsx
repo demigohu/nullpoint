@@ -123,7 +123,7 @@ export function AccountMenu({ network, liveMode }: { network: Network; liveMode:
         </button>
       ) : (
         <div className="flex">
-          <button onClick={() => signIn()} disabled={loading} className={`${seg(true)} border border-tc`}>Connect wallet</button>
+          <button onClick={() => signIn()} disabled={loading} className={`${seg(true)} border border-tc`}>Connect<span className="max-sm:hidden"> wallet</span></button>
           <button onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open} aria-label="Display settings" className={`${seg(open)} flex items-center border border-l-0 border-tc ${open ? "" : "bg-fc"}`}>
             <SlidersHorizontal weight="bold" size={14} />
           </button>

@@ -35,7 +35,7 @@ export function Hud({ network, liveMode, live }: { network: Network; liveMode: M
 
   return (
     <>
-      <header className="pointer-events-none fixed inset-x-0 top-0 z-30 flex items-start justify-between gap-3 p-[var(--pad)]">
+      <header className="pointer-events-none fixed inset-x-0 top-0 z-30 flex items-start justify-between gap-3 p-[var(--pad)] max-lg:border-b max-lg:border-tc max-lg:bg-fc max-lg:py-3">
         <div className="pointer-events-auto flex flex-wrap items-center gap-2">
           <Link href="/" className="bg-fc px-2 py-1 text-[17px] text-tc">
             <Wordmark />
@@ -97,7 +97,7 @@ function Bits() {
 /** Spot minus short for the active coin; near zero means fully hedged. */
 function Delta({ live }: { live: NonNullable<HudLive> }) {
   return (
-    <div title="Coin held minus the short. Near zero means fully hedged." className={`px-2 py-1.5 font-mono text-[12px] ${live.paused ? "bg-alarm text-fc" : "panel"}`}>
+    <div title="Coin held minus the short. Near zero means fully hedged." className={`px-2 py-1.5 font-mono text-[12px] max-sm:hidden ${live.paused ? "bg-alarm text-fc" : "panel"}`}>
       {live.paused ? "vault paused" : live.symbol ? `Δ ${live.delta >= 0 ? "+" : "−"}${Math.abs(live.delta).toFixed(4)} ${live.symbol}` : "Δ 0 · parked in USDC"}
     </div>
   );

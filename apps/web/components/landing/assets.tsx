@@ -18,7 +18,7 @@ export function Assets({ radar, active }: { radar: Radar; active: string | null 
 
   useEffect(() => {
     const mm = gsap.matchMedia();
-    mm.add("(min-width: 768px) and (prefers-reduced-motion: no-preference)", () => {
+    mm.add("(min-width: 1024px) and (prefers-reduced-motion: no-preference)", () => {
       const distance = () => track.current!.scrollWidth - innerWidth;
       const pan = gsap.to(track.current, {
         x: () => -distance(),
@@ -34,8 +34,8 @@ export function Assets({ radar, active }: { radar: Radar; active: string | null 
 
   return (
     <section ref={root} className="overflow-hidden">
-      <div ref={track} className="flex w-max flex-col gap-[var(--pad)] p-[var(--pad)] pt-28 max-md:w-full md:h-[100dvh] md:flex-row md:items-center">
-        <div className="w-full md:w-[34vw] md:shrink-0">
+      <div ref={track} className="flex w-max flex-col gap-[var(--pad)] p-[var(--pad)] pt-28 max-lg:w-full lg:h-[100dvh] lg:flex-row lg:items-center">
+        <div className="w-full lg:w-[34vw] lg:shrink-0">
           <h2 className="wdth-118 text-[clamp(2.2rem,4.6vw,5.4rem)] font-extrabold leading-[0.9] tracking-[-0.045em]">Three coins. The agent holds whichever pays best.</h2>
           <p className="mt-5 max-w-[44ch] text-[15px] leading-[1.5]">Live funding from Hyperliquid, as a yearly rate. It changes every hour and can go negative. When none of the three pays, the vault waits in USDC.</p>
         </div>
@@ -45,19 +45,19 @@ export function Assets({ radar, active }: { radar: Radar; active: string | null 
             <article
               key={r.symbol}
               style={{ "--t": m.t, "--f": m.f } as React.CSSProperties}
-              className="grid w-full gap-4 bg-fc p-[var(--pad)] text-tc md:h-[78dvh] md:w-[58vw] md:shrink-0 md:grid-cols-[1.1fr_1fr] md:items-center"
+              className="grid w-full gap-4 bg-fc p-[var(--pad)] text-tc sm:grid-cols-[1fr_1.1fr] sm:items-center lg:h-[78dvh] lg:w-[58vw] lg:shrink-0 lg:grid-cols-[1.1fr_1fr]"
             >
-              <figure className="asset-frame relative aspect-[3/4] w-full border border-tc max-md:aspect-square">
+              <figure className="asset-frame relative aspect-square w-full border border-tc lg:aspect-[3/4]">
                 <FieldCanvas mode={modeOf(r.symbol)} cell={20} speed={0.6} />
-                <figcaption className="absolute -bottom-7 left-0 flex w-full justify-between font-mono text-[11px]">
+                <figcaption className="absolute -bottom-7 left-0 flex w-full justify-between gap-2 whitespace-nowrap font-mono text-[11px]">
                   <span className="chip">monitor {r.symbol}</span>
                   {r.symbol === active && <span className="chip">vault holds this</span>}
                 </figcaption>
               </figure>
-              <div className="max-md:mt-6">
+              <div className="max-sm:mt-6">
                 <h3 className="wdth-125 text-[clamp(3rem,7vw,8rem)] font-extrabold leading-[0.85] tracking-[-0.05em]">{r.symbol}</h3>
                 <dl className="num mt-6 grid gap-3 border-t border-tc pt-4 text-[14px]">
-                  <div className="flex justify-between gap-4"><dt>Funding now</dt><dd className="font-bold">{r.aprNow.toFixed(1)}% a year</dd></div>
+                  <div className="flex justify-between gap-4"><dt className="whitespace-nowrap">Funding now</dt><dd className="font-bold">{r.aprNow.toFixed(1)}% a year</dd></div>
                   <div className="flex justify-between gap-4"><dt>Last 8 hours</dt><dd>{r.apr8h.toFixed(1)}% a year</dd></div>
                   <div className="flex justify-between gap-4"><dt>Market size</dt><dd>{money(r.oiUsd)}</dd></div>
                 </dl>

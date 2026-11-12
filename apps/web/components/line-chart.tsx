@@ -2,12 +2,13 @@
 // Inline-SVG line chart in the page duotone (DESIGN.md §1): series differ by stroke (solid vs
 // dotted), not color. Time-spaced x ticks (never overlap), a hover/touch readout, optional range
 // tabs and event markers (rotations, parks), direct end labels, and a table view.
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export type Series = { key: string; label: string; dashed?: boolean; points: { x: number; y: number }[] };
 export type Marker = { x: number; label: string };
 
-const W = 720, H = 300, PAD = { l: 64, r: 92, t: 22, b: 30 };
+// The SVG is drawn at the width it is shown, so text keeps its real size on phones.
+const PAD_WIDE = { l: 64, r: 92, t: 22, b: 30 }, PAD_NARROW = { l: 52, r: 72, t: 22, b: 30 };
 const HOUR = 3_600_000;
 const RANGES: [string, number][] = [["24H", 24 * HOUR], ["7D", 7 * 24 * HOUR], ["30D", 30 * 24 * HOUR], ["All", Infinity]];
 
@@ -42,6 +43,16 @@ export function LineChart({
   const [hover, setHover] = useState<number | null>(null);
   const [table, setTable] = useState(false);
   const svg = useRef<SVGSVGElement>(null);
+  const box = useRef<HTMLElement>(null);
+  const [W, setW] = useState(720);
+  const narrow = W < 520;
+  const H = narrow ? 240 : 300;
+  const PAD = narrow ? PAD_NARROW : PAD_WIDE;
+  useEffect(() => {
+    const ro = new ResizeObserver(([e]) => setW(Math.max(300, Math.round(e!.contentRect.width))));
+    ro.observe(box.current!);
+    return () => ro.disconnect();
+  }, []);
 
   const view = useMemo(() => series.map((s) => ({ ...s, points: s.points.filter((p) => last - p.x <= range) })), [series, range, last]);
   const xs = view[0]?.points.map((p) => p.x) ?? [];
@@ -57,9 +68,10 @@ export function LineChart({
     const y = (v: number) => PAD.t + (1 - (v - yMin) / (yMax - yMin)) * (H - PAD.t - PAD.b);
     const yTicks = Array.from({ length: 4 }, (_, i) => yMin + ((yMax - yMin) * (i + 0.5)) / 4);
     // Evenly spaced in time, not by point index, so clustered points can't stack labels.
-    const xTicks = xMax > xMin ? Array.from({ length: 4 }, (_, i) => xMin + ((xMax - xMin) * i) / 3) : [xMin];
+    const n = narrow ? 2 : 4; // phones: first and last only, so labels never touch
+    const xTicks = xMax > xMin ? Array.from({ length: n }, (_, i) => xMin + ((xMax - xMin) * i) / (n - 1)) : [xMin];
     return { x, y, yTicks, xTicks, span: xMax - xMin };
-  }, [view, baseline]);
+  }, [view, baseline, W, H, narrow, PAD]);
 
   const tabs = ranges && (
     <div role="group" aria-label="Range" className="mb-3 flex gap-1 font-mono text-[11px]">
@@ -71,7 +83,7 @@ export function LineChart({
       ))}
     </div>
   );
-  if (xs.length < 2) return <figure className="w-full">{tabs}<p className="py-10 text-[14px]">Not enough points in this range yet.</p></figure>;
+  if (xs.length < 2) return <figure ref={box} className="w-full">{tabs}<p className="py-10 text-[14px]">Not enough points in this range yet.</p></figure>;
 
   const pick = (clientX: number) => {
     const r = svg.current!.getBoundingClientRect();
@@ -85,7 +97,7 @@ export function LineChart({
   const hx = hover !== null ? x(xs[hover]!) : 0;
 
   return (
-    <figure className="w-full">
+    <figure ref={box} className="w-full">
       {tabs}
       <div className="relative">
         <svg
