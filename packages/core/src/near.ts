@@ -1,8 +1,9 @@
 // Minimal NEAR JSON-RPC helpers (no keys needed). Shared by agent, scripts and the web app.
 // Free public endpoints rate-limit, so each call falls through a list on 429 / 5xx / network errors.
+// rpc.*.near.org is deprecated and throttled (about 3.5 s a call), so it is only the last resort.
 export const RPCS = {
-  testnet: ["https://rpc.testnet.near.org", "https://near-testnet.drpc.org", "https://rpc.testnet.fastnear.com"],
-  mainnet: ["https://free.rpc.fastnear.com", "https://rpc.mainnet.near.org", "https://near.drpc.org"],
+  testnet: ["https://rpc.testnet.fastnear.com", "https://near-testnet.drpc.org", "https://rpc.testnet.near.org"],
+  mainnet: ["https://free.rpc.fastnear.com", "https://near.drpc.org", "https://rpc.mainnet.near.org"],
 } as const;
 
 export type Network = keyof typeof RPCS;
@@ -17,7 +18,13 @@ export async function rpc(network: Network, method: string, params: object): Pro
   let last: unknown;
   for (const url of endpoints(network)) {
     try {
-      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+      // A hung endpoint falls through like a failed one. Long waits (tx with wait_until) get more time.
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+        signal: AbortSignal.timeout(method === "query" ? 8_000 : 60_000),
+      });
       const body = await res.json().catch(() => null);
       if (res.status === 429 || res.status >= 500 || !body || body.error?.code === -429) {
         last = new Error(`${url} [${res.status}]`);
