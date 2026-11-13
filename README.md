@@ -8,8 +8,7 @@ How it works in one line: a NEAR contract owns the vault's Intents account and i
 
 <p align="center"><img src="docs/readme/landing.png" alt="NullPoint landing page: a grid of + and − cells, the wordmark, and the line 'Earn from crypto without betting on it.'" width="760"></p>
 
-<!-- VIDEO_URL -->
-**▶ Demo video:** linked from the hackathon submission and the X post.
+**▶ Demo video (1:48):** [the X post](https://x.com/demigohu/status/2121173944632037500), from a deposit to the agent's work, a paid withdrawal, the attack script refused and mainnet.
 
 Built for **NEAR HACKATHON** (November 2026), tracks **Unstoppable DeFi**, **AI Security & Defense** and **Agent Economy**. Independent project; not affiliated with NEAR, Hyperliquid or 1Click.
 
@@ -18,6 +17,7 @@ Built for **NEAR HACKATHON** (November 2026), tracks **Unstoppable DeFi**, **AI 
 | App | https://nullpoint.fun |
 | Docs (23 pages, 14 diagrams, live checks) | https://docs.nullpoint.fun |
 | Status | https://status.nullpoint.fun |
+| Demo video | https://x.com/demigohu/status/2121173944632037500 |
 | Mainnet vault, source verified | [`vault.nullpoint.near`](https://nearblocks.io/address/vault.nullpoint.near) |
 | Testnet vault, source verified | [`vault.nullpoint.testnet`](https://testnet.nearblocks.io/address/vault.nullpoint.testnet) |
 
