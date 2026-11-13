@@ -223,7 +223,7 @@ packages/core            shared TypeScript: RPC, address derivation, 1Click form
 scripts/                 demo, attacks, simulations, e2e test, deploy, keys
 ```
 
-Each folder has its own README: [web](apps/web/README.md) · [docs](apps/docs/README.md) · [agent](apps/agent/README.md) · [contracts](contracts/README.md) · [core](packages/core/README.md) · [scripts](scripts/README.md). Product spec: [PRD.md](PRD.md) (Indonesian). Design system: [apps/web/DESIGN.md](apps/web/DESIGN.md).
+Each folder has its own README: [web](apps/web/README.md) · [docs](apps/docs/README.md) · [agent](apps/agent/README.md) · [contracts](contracts/README.md) · [core](packages/core/README.md) · [scripts](scripts/README.md). Product spec: [PRD.md](PRD.md). Design system: [apps/web/DESIGN.md](apps/web/DESIGN.md).
 
 ## NEAR features used
 
